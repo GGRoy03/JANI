@@ -12,6 +12,7 @@ BeginUIFrame(jani_context *Context)
 {
     if(!Context->Initialized)
     {
+        Context->Allocator    = jani_allocator(Megabytes(5));
         Context->CommandMetas = JaniBumper<jani_draw_meta>(8 * sizeof(jani_draw_meta));
         Context->Backend = (jani_backend*)
             Context->Allocator.Allocate(sizeof(jani_backend));
@@ -44,6 +45,7 @@ DrawBox(jani_context *Context)
     jani_pipeline_state  *State        = Context->Backend->States + CurrentIndex;
 
     State->FrameVertexSize += 4 * State->InputStride;
+    State->FrameIndexSize  += 6 * sizeof(u32);
 }
 
 void

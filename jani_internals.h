@@ -26,6 +26,7 @@ struct JaniBumper
 
     JaniBumper(size_t AllocSize)
     {
+        Size     = 0;
         Capacity = AllocSize;
         Values   = (T*)malloc(AllocSize);
     }
