@@ -6,31 +6,6 @@
 namespace JANI
 {
 
-static GLenum
-GetNativeType(JANI_TYPE JaniType)
-{
-    switch(JaniType)
-    {
-
-    case JANI_U32: return GL_UNSIGNED_INT;
-    case JANI_F32: return GL_FLOAT;
-
-    default      : return GL_UNSIGNED_INT;
-
-    };
-}
-
-static size_t
-GetSizeOfNativeType(GLenum NativeType)
-{
-    switch(NativeType)
-    {
-        case GL_UNSIGNED_INT: return sizeof(u32);
-        case GL_FLOAT       : return sizeof(f32);
-        default             : return sizeof(u8);
-    }
-}
-
 sorted_metas
 SortDraws(jani_context *Context)
 {
@@ -73,10 +48,12 @@ SortDraws(jani_context *Context)
 // NOTE: We could also consider doing 1 list / type of commands and just
 // loop over those perhaps?
 JaniBumper<jani_draw_command>
-BuildAndCopyData(jani_backend *Backend, sorted_metas *Sorted)
+BuildAndCopyData(jani_context *Context, sorted_metas *Sorted)
 {
+    jani_backend *Backend = Context->Backend;
+
     size_t     AllocSize = Sorted->MetaCount * sizeof(jani_draw_command);
-    JaniBumper Commands  = JaniBumper<jani_draw_command>(AllocSize);
+    JaniBumper Commands  = JaniBumper<jani_draw_command>(AllocSize); // BUG: Leak?
 
     jani_pipeline_state *CurrentPipeline = nullptr;
 
@@ -195,13 +172,7 @@ ExecuteDrawCommands(JaniBumper<jani_draw_command> *Commands)
             glBindProgramPipeline(Command->PipelineState->Pipeline);
             glBindVertexArray(Command->PipelineState->VertexArrayObject);
 
-            // TODO: This needs to be change to binding the resource queue.
-            u32 TextureCount = Command->PipelineState->TextureCount;
-            for(u32 TexIndex = 0; TexIndex < TextureCount; TexIndex++)
-            {
-                opengl_texture *Tex = Command->PipelineState->Textures + TexIndex;
-                glBindTextureUnit(Tex->BindSlot, Tex->Id);
-            }
+            // TODO: Bind the resource queue
 
             CurrentPipelineState = Command->PipelineState;
         }
@@ -230,18 +201,30 @@ GetShaderType(JANI_SHADER_TYPE Type)
 {
     switch(Type)
     {
+
     case JANI_VERTEX_SHADER_BIT: return GL_VERTEX_SHADER;
     case JANI_PIXEL_SHADER_BIT : return GL_FRAGMENT_SHADER;
+
+    default:
+         Jani_Assert(!"Unknown shader type");
+         return GL_NONE;
+
     }
 }
 
+//
 static inline GLenum
 GetShaderBit(JANI_SHADER_TYPE Type)
 {
     switch(Type)
     {
+
     case JANI_VERTEX_SHADER_BIT: return GL_VERTEX_SHADER_BIT;
     case JANI_PIXEL_SHADER_BIT : return GL_FRAGMENT_SHADER_BIT;
+
+    default:
+         Jani_Assert(!"Unknown shader type");
+         return GL_NONE;
     }
 }
 
@@ -249,7 +232,7 @@ static void inline
 CreateAndBindShaders(jani_pipeline_state *State, jani_shader_info *Shaders,
                      u32 ShaderCount)
 {
-    for(u32 Index = 0; Index < InputCount; Index++)
+    for(u32 Index = 0; Index < ShaderCount; Index++)
     {
         jani_shader_info Shader = Shaders[Index];
 
@@ -260,7 +243,7 @@ CreateAndBindShaders(jani_pipeline_state *State, jani_shader_info *Shaders,
 
         const GLchar** ByteCode   = (const GLchar**)&Shader.ByteCode;
         GLenum         NativeType = GetShaderType(Shader.Type);
-        GLuint         Handle     = glCreateShaderProgramv(NativeType, ByteCode);
+        GLuint         Handle     = glCreateShaderProgramv(NativeType, 1, ByteCode);
 
         GLint Status;
         glGetProgramiv(Handle, GL_LINK_STATUS, &Status);
@@ -319,17 +302,17 @@ CreateAndSetInputLayout(jani_pipeline_state *State, jani_shader_input *Inputs,
         glVertexArrayAttribBinding(State->VertexArrayObject, Index, Input.BufferIndex);
         glEnableVertexArrayAttrib (State->VertexArrayObject, Index);
 
-        State->InputStride += Input.Count * Size;
+        State->InputStride += (u32)(Input.Count * Size);
     }
 }
 
 static inline GLenum
-GetBufferUsage(JANI_PIPELINE_BUFFER_UPDATE_TYPE Type)
+GetBufferUsage(JANI_BUFFER_UPDATE_TYPE Type)
 {
     switch(Type)
     {
 
-    case JANI_PIPELINE_BUFFER_UPDATE_PER_FRAME: return GL_DYNAMIC_DRAW;
+    case JANI_BUFFER_UPDATE_PER_FRAME: return GL_DYNAMIC_DRAW;
 
     default:
     {
@@ -352,7 +335,7 @@ CreateAndBindBuffers(jani_pipeline_state *State, jani_pipeline_buffer *Buffers,
         switch(Buffer.BufferType)
         {
 
-        case JANI_PIPELINE_BUFFER_VERTEX:
+        case JANI_BUFFER_VERTEX:
         {
             glCreateBuffers(1, &State->VertexBuffer);
 
@@ -365,7 +348,7 @@ CreateAndBindBuffers(jani_pipeline_state *State, jani_pipeline_buffer *Buffers,
             State->VertexBufferSize = Buffer.Size;
         } break;
 
-        case JANI_PIPELINE_BUFFER_INDEX:
+        case JANI_BUFFER_INDEX:
         {
             glCreateBuffers(1, &State->IndexBuffer);
 
@@ -396,9 +379,10 @@ GetNextResource(backend_resource_queue *Queue)
     return Resource;
 }
 
+
 static inline void
 CreateAndBindResources(jani_pipeline_state *State, jani_resource_binding *Bindings,
-                       u32 BindingCount);
+                       u32 BindingCount)
 {
     for(u32 Index = 0; Index < BindingCount; Index++)
     {
@@ -408,6 +392,7 @@ CreateAndBindResources(jani_pipeline_state *State, jani_resource_binding *Bindin
         if(!Resource) break;
 
         Resource->BindSlot = Binding.BindSlot;
+        Resource->Type     = Binding.Type;
 
         switch(Binding.Type)
         {
@@ -455,9 +440,24 @@ CreateAndBindResources(jani_pipeline_state *State, jani_resource_binding *Bindin
 
         } break;
 
-        // TODO: Constant buffer creation
+        // BUG: Flags in glMapNamedBufferRange should depend on the buffer
+        // usage.
         case JANI_BACKEND_RESOURCE_CBUFFER:
         {
+            Jani_Assert(Binding.Size > 0);
+
+            backend_constant_buffer *CBuffer = &Resource->Data.CBuffer;
+
+            glCreateBuffers(1, &CBuffer->Buffer);
+
+            GLenum Usage = GetBufferUsage(Binding.Extra.UpdateType);
+            glNamedBufferStorage(CBuffer->Buffer, Binding.Size, Binding.InitData,
+                                 Usage);
+
+            CBuffer->SizeOfData = Binding.Size;
+            CBuffer->DataPointer = 
+                        glMapNamedBufferRange(CBuffer->Buffer, 0, Binding.Size,
+                                              GL_DYNAMIC_STORAGE_BIT|GL_MAP_WRITE_BIT);
         } break;
 
         default:
@@ -475,9 +475,8 @@ CreatePipeline(jani_context *Context, jani_pipeline_info Info)
     Jani_Assert(Context);
 
     jani_backend   *Backend   = Context->Backend;
-    jani_allocator *Allocator = &Context->Allocator;
 
-    // NOTE: We used to initialized the backend here, but it is a mistake
+    // NOTE: We used to initialize the backend here, but it is a mistake
     // so do it elsewhere.
 
     jani_pipeline_state *State    = nullptr;
@@ -488,16 +487,16 @@ CreatePipeline(jani_context *Context, jani_pipeline_info Info)
     u32 Iterations = 0;
     while(Iterations < Backend->PipelineBufferSize)
     {
-        if(Backend->StateIDs[StateIndex] == INVALID_ID)
+        if(Backend->StateIDs[StateIdx] == INVALID_ID)
         {
-            Handle = MAKE_PIPELINE_HANDLE(Id, StateIndex);
-            State  = Backend->States + StateIndex;
+            Handle = MAKE_PIPELINE_HANDLE(Id, StateIdx);
+            State  = Backend->States + StateIdx;
 
-            Backend->StateIDs[StateIndex] = Id;
+            Backend->StateIDs[StateIdx] = Id;
             break;
         }
 
-        StateIndex = (StateIndex + 1) & Backend->PipelineBufferSize;
+        StateIdx = (StateIdx + 1) & Backend->PipelineBufferSize;
         Iterations++;
     }
 
@@ -506,217 +505,27 @@ CreatePipeline(jani_context *Context, jani_pipeline_info Info)
         glCreateVertexArrays(1, &State->VertexArrayObject);
         glCreateProgramPipelines(1, &State->Pipeline);
 
-        opengl_resource_queue *Queue = &State->ResourceQueue;
-        jani_allocator        *A     = &Context->Allocator;
+        backend_resource_queue *Queue = &State->ResourceQueue;
+        jani_allocator         *A     = &Context->Allocator;
         Queue->Capacity  = Info.BindingCount;
-        Queue->Resources = A->Allocate(Queue->Capacity * sizeof(backend_resource));
+        Queue->Resources = (backend_resource*)
+            A->Allocate(Queue->Capacity * sizeof(backend_resource));
 
-        CreateAndBindShaders   (State, Info.Inputs , Info.InputCount );
-        CreateAndSetInputLayout(State, Info.Shaders, Info.ShaderCount);
-        CreateAndBindBuffers   (State, Info.Buffers, Info.BufferCount);
+        CreateAndBindShaders   (State, Info.Shaders , Info.ShaderCount );
+        CreateAndSetInputLayout(State, Info.Inputs  , Info.InputCount  );
+        CreateAndBindBuffers   (State, Info.Buffers , Info.BufferCount );
+        CreateAndBindResources (State, Info.Bindings, Info.BindingCount);
+
+        return Handle;
     }
+
+    return 0; // Corresponds to the default pipeline
 }
 
 void inline
 SetPipelineState(jani_backend *Backend, jani_pipeline_handle PipelineHandle)
 {
     Backend->ActivePipeline = PipelineHandle;
-}
-
-// =================================
-// Resources
-// =================================
-
-backend_constant_buffer
-CreateConstantBuffer(void *Data, size_t Size)
-{
-    backend_constant_buffer ConstantBuffer = {};
-    ConstantBuffer.SizeOfData              = Size;
-
-    glCreateBuffers(1, &ConstantBuffer.Buffer);
-
-    ConstantBuffer.DataPointer = 
-        glMapNamedBufferRange(ConstantBuffer.Buffer, Size, Data,
-                              GL_DYNAMIC_STORAGE_BIT | GL_MAP_WRITE_BIT);
-
-    return ConstantBuffer;
-}
-
-void inline
-UpdateConstantBuffer(backend_constant_buffer *CBuffer, void *Data, size_t Size)
-{
-    Jani_Assert(CBuffer && Data && Size == CBuffer->SizeOfData);
-
-    memcpy(CBuffer->DataPointer, Data, Size);
-}
-
-// NOTE: This needs to be modified slightly. Check SetConstantBuffer for correct
-// structure. I don't know.
-backend_resource*
-GetResourceFromQueue(jani_context *Context, backend_resource_queue *Queue)
-{
-    jani_allocator *A = &Context->Allocator;
-
-    if(!Queue->Resources)
-    {
-        Queue->Capacity  = JANI_DEFAULT_RESOURCE_COUNT;
-        Queue->Resources =  A->Allocate(Queue->Capacity*sizeof(backend_resource));
-    }
-
-    if(Queue->Count == Queue->Capacity)
-    {
-        // NOTE: Let's treat this as an error for now.
-    }
-
-    backend_resource *Resource = Queue->Resources + Queue->Count;
-    Queue->Count              += 1;
-
-    return Resource;
-}
-
-// NOTE: I don't know.
-
-void 
-SetGlobalResource(jani_context *Context, u32 BindSlot, void *UserData,
-                  size_t SizeOfData, BACKEND_RESOURCE_TYPE Type, jani_bit_field Flags)
-{
-    // TODO: Assert bind slot bounds? Assert size of data?
-    Jani_Assert(Context && Type != BACKEND_RESOURCE_NONE);
-
-    jani_backend        *Backend = Context->Backend;
-    jani_resource_queue *Queue   = &Backend->GlobalResourceQueue;
-    jani_allocator      *A       = &Context->Allocator;
-
-    if(!Queue->Initialized)
-    {
-        Queue->Capacity  = JANI_DEFAULT_GLOBAL_RESOURCE_COUNT;
-        Queue->Resources = A->Allocate(GlobalQueue->Capacity*sizeof(backend_resource));
-        Queue->Count     = 0;
-
-        Queue->Initialized = true;
-    }
-
-    if(Queue->Count == Queue->Capacity)
-    {
-        Queue->Count = 0;
-    }
-// WARN: Could call GetResourceFromQueue, but would need to extend that function
-    // to disallow re-allocations.
-    backend_resource *Resource = Queue->Resources + Queue->Count;
-
-    if(Resource->Type == BACKEND_RESOURCE_NONE)
-    {
-        Resource->Type     = Type;
-        Resource->BindSlot = BindSlot;
-
-        switch(Resource->Type)
-        {
-
-        case BACKEND_RESOURCE_TEXTURE:
-        {
-            jani_texture_info *TextureInfo = (jani_texture_info*)UserData;
-
-            backend_texture Tex = {};
-            Tex.BindSlot        = BindSlot;
-
-            i32 Width, Height, Channels;
-            u8 *Pixels = stbi_load((const char*)TextureInfo->Path, &Width, &Height,
-                                   &Channels, 0);
-            GLenum Format = (Channels == 4 ? GL_RGBA :
-                             Channels == 3 ? GL_RGB  :
-                             Channels == 1 ? GL_RED  : 
-                                             GL_RGB);
-
-            glCreateTextures(GL_TEXTURE_2D, 1, &Texture.Id);
-            glTextureStorage2D(Tex.Id, 0, Format, Width, Height);
-
-            glTextureParameteri(Tex.Id,GL_TEXTURE_WRAP_S    ,GL_REPEAT);
-            glTextureParameteri(Tex.Id,GL_TEXTURE_WRAP_T    ,GL_REPEAT);
-            glTextureParameteri(Tex.Id,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
-            glTextureParameteri(Tex.Id,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
-
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-            glTextureSubImage2D(Tex.Id, 0, 0, 0, Width, Height, Format,
-                                GL_UNSIGNED_BYTE, Pixels);
-            stb_image_free(Pixels);
-
-            Resource->Data.Texture = Texture;
-
-            } break;
-
-            // WARN: We always set: GL_DYNAMIC_DRAW, which is wrong perhaps.
-            // Probably some flags based approach?
-            case BACKEND_RESOURCE_CONSTANT_BUFFER:
-            {
-                backend_constant_buffer ConstantBuffer = {};
-                ConstantBuffer.SizeOfData              = SizeOfData;
-
-                glCreateBuffers(1, &ConstantBuffer.Buffer);
-                glNamedBufferStorage(ConstantBuffer.Buffer, SizeOfData, UserData,
-                                     GL_DYNAMIC_DRAW);
-                ConstantBuffer.DataPointer = 
-                    glMapNamedBufferRange(ConstantBuffer.Buffer, SizeOfData, nullptr,
-                                          GL_DYNAMIC_STORAGE_BIT | GL_MAP_WRITE_BIT);
-                Resource->Data.CBuffer = ConstantBuffer;
-            } break;
-
-        }
-    }
-    else if(Resource->Type == Type && Resource->BindSlot == BindSlot &&
-           (Flags & BACKEND_RESOURCE_NEVER_UPDATE) != 1)
-    {
-        switch(Resource->Type)
-        {
-
-        case BACKEND_RESOURCE_TEXTURE:
-        {
-        } break;
-
-        case BACKEND_RESOURCE_CONSTANT_BUFFER:
-        {
-            Jani_Assert(Resource->DataPointer              &&
-                        Resource->SizeOfData == SizeOfData &&
-                        UserData);
-
-            Resource->DataPointer = UserData;
-        } break;
-
-        }
-    }
-    else
-    {
-        // WARN: This is an error. Either there aren't enough slots or we are
-        // binding things in the wrong order. Which means we need to log it
-        // somewhere.
-    }
-}
-
-// NOTE: This works, we simply need the user to call this every frame. With an
-// update flag?
-void
-SetConstantBuffer(jani_context *Context, void* UserData, size_t Size, u32 BindSlot)
-{
-    Jani_Assert(Context && Type != JANI_BACKEND_RESOURCE_NONE);
-
-    u32                  Index = GET_INDEX_FROM_HANDLE(PipelineHandle);
-    jani_pipeline_state *State = Context->States + Index;
-
-    backend_resource *Resource = GetResourceFromQueue(Context, &State->ResourceQueue);
-
-    if(Resource->Capacity == JANI_BACKEND_RESOURCE_NONE)
-    {
-        Resource->Type         = JANI_BACKEND_RESOURCE_CONSTANT_BUFFER;
-        Resource->Data.CBuffer = CreateConstantBuffer(UserData, Size);
-    }
-    else if(Resource->Type       == JANI_BACKEND_RESOURCE_CONSTANT_BUFFER &&
-            Resource->SizeOfData == Size)
-    {
-        UpdateConstantBuffer(&Resource->Data.CBuffer, UserData, Size);
-    }
-    else
-    {
-        // WARN: Wrong order, something went wrong.
-    }
 }
 
 }

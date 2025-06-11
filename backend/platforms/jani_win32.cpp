@@ -6,12 +6,12 @@
 namespace JANI_PLATFORM
 {
 
-platform_read_result
+jani_platform_read_result
 Win32ReadFile(const char* Path, jani_allocator *Allocator)
 {
     Jani_Assert(Path);
 
-    platform_read_result Result = {};
+    jani_platform_read_result Result = {};
 
     HANDLE FileHandle = CreateFileA(Path, GENERIC_READ, FILE_SHARE_READ, NULL,
                                     OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -54,8 +54,9 @@ Win32GetClientSize(void *WindowHandle, i32 *Width, i32 *Height)
 }
 
 void
-DoPlatformWorkBeforeFrame(jani_context *Context, jani_platform *Platform)
+DoPlatformWorkBeforeFrame(jani_context *Context)
 {
+    jani_platform *Platform = &Context->Platform;
     if(!Platform->Initialized)
     {
         Platform->WindowHandle = JANI_GLOBAL_WINDOW_HANDLE; 

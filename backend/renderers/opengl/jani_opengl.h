@@ -25,8 +25,8 @@ struct backend_constant_buffer
 
 struct backend_resource
 {
-    BACKEND_RESOURCE_TYPE Type;
-    u32                   BindSlot;
+    JANI_BACKEND_RESOURCE_TYPE Type;
+    u32                        BindSlot;
 
     union
     {
@@ -74,7 +74,7 @@ struct jani_pipeline_state
     GLsizei FrameDataOffset;
     GLint   FrameBaseVertex;
 
-    opengl_resource_queue ResourceQueue;
+    backend_resource_queue ResourceQueue;
 
     jani_bit_field EnabledShaders;
 };
