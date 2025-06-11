@@ -147,6 +147,31 @@ BuildAndCopyData(jani_context *Context, sorted_metas *Sorted)
     return Commands;
 }
 
+static inline void
+BindResourceQueue(backend_resouce_queue *Queue)
+{
+    for(u32 Index = 0; Index < Queue->Count; Index++)
+    {
+        backend_resource *Resource = Queue->Resources + Index;
+
+        switch(Resource->Type)
+        {
+
+        case JANI_BACKEND_RESOURCE_TEXTURE:
+        {
+            glBindTextureUnit(Resource->BindSlot, Resource->Data.Texture.Id);
+        } break;
+
+        case JANI_BACKEND_RESOURCE_CBUFFER:
+        {
+            glBindBufferBase(GL_UNIFORM_BUFFER, Resource->BindSlot,
+                             Resource->Data.CBuffer.Id);
+        } break;
+
+        }
+    }
+}
+
 void 
 ExecuteDrawCommands(JaniBumper<jani_draw_command> *Commands)
 {
@@ -172,9 +197,10 @@ ExecuteDrawCommands(JaniBumper<jani_draw_command> *Commands)
             glBindProgramPipeline(Command->PipelineState->Pipeline);
             glBindVertexArray(Command->PipelineState->VertexArrayObject);
 
-            // TODO: Bind the resource queue
+            BindResourceQueue(&Command->PipelineState->ResourceQueue);
 
             CurrentPipelineState = Command->PipelineState;
+
         }
 
         switch(Command->Type)
@@ -183,7 +209,7 @@ ExecuteDrawCommands(JaniBumper<jani_draw_command> *Commands)
         case JANI_DRAW_COMMAND_INDEXED_OFFSET:
         {
             glDrawElementsBaseVertex(GL_TRIANGLES, Command->Count, GL_UNSIGNED_INT,
-                                     (const void*)Command->Offset, Command->BaseVertex);
+                                    (const void*)Command->Offset, Command->BaseVertex);
         } break;
 
         }
