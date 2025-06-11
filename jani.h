@@ -2,15 +2,43 @@
 
 #include "jani_internals.h"
 
+#ifndef JANI_DEFAULT_RESOURCE_COUNT
+#define JANI_DEFAULT_RESOURCE_COUNT 2
+#endif
+
 namespace JANI
 {
+
+struct jani_backend;
+struct jani_pipeline_state;
+struct jani_context;
+
+// ===========================================
+// Platform 
+// ===========================================
+
+struct jani_platform_read_result
+{
+    u8*    Content;
+    size_t ContentSize;
+};
+
+using jani_platform_read_file = 
+jani_platform_read_result(*)(const char* Path, jani_allocator *Allocator);
+
+void *JANI_GLOBAL_WINDOW_HANDLE = nullptr;
+
+struct jani_platform
+{
+    jani_platform_read_file JaniReadFile;
+
+    void *WindowHandle;
+    bool Initialized;
+};
 
 // ===========================================
 // Pipeline 
 // ===========================================
-
-struct jani_pipeline_state;
-struct jani_context;
 
 using  jani_pipeline_handle = u32;
 using  jani_bit_field       = u32;
@@ -20,19 +48,38 @@ using  jani_bit_field       = u32;
 #define GET_ID_FROM_HANDLE(Handle)      (Handle >> 16)
 #define GET_INDEX_FROM_HANDLE(Handle)   (u16)(Handle & 0xFFFF0000)
 
-#ifndef JANI_PIPELINE_BUFFER_DEFAULT_SIZE 
-#define JANI_PIPELINE_BUFFER_DEFAULT_SIZE 4
+#ifndef JANI_DEFAULT_PIPELINE_COUNT
+#define JANI_DEFAULT_PIPELINE_COUNT 4
 #endif
 
-struct jani_backend
-{
-    u32                  PipelineBufferSize;
-    u16                 *StateIDs;
-    jani_pipeline_state *States;
-    u16                  NextPipelineID;
-    jani_pipeline_handle ActivePipeline;
+#ifndef JANI_DEFAULT_GLOBAL_RESOURCE_COUNT
+#define JANI_DEFAULT_GLOBAL_RESOURCE_COUNT 1
+#endif
 
-    bool Valid;
+#ifndef JANI_DEFAULT_STICKY_RESOURCE_COUNT
+#define JANI_DEFAULT_STICKY_RESOURCE_COUNT 1
+#endif
+
+#define JANI_NO_FLAGS 0
+
+enum JANI_BACKEND_RESOURCE_TYPE
+{
+    JANI_BACKEND_RESOURCE_NONE,
+    JANI_BACKEND_RESOURCE_TEXTURE,
+    JANI_BACKEND_RESOURCE_CBUFFER,
+};
+
+enum JANI_BUFFER_TYPE
+{
+    JANI_BUFFER_NONE,
+    JANI_BUFFER_VERTEX,
+    JANI_BUFFER_INDEX,
+};
+
+enum JANI_BUFFER_UPDATE_TYPE
+{
+    JANI_BUFFER_UPDATE_NONE,
+    JANI_BUFFER_UPDATE_PER_FRAME,
 };
 
 enum JANI_SHADER_TYPE : u32
@@ -50,21 +97,59 @@ enum JANI_TYPE : u32
 struct jani_shader_input
 {
     JANI_TYPE Type;
-    u32       BindSlot;
     u32       Count;
+    u32       BufferIndex;
+};
+
+struct jani_shader_info
+{
+    const char      *ByteCode;
+    JANI_SHADER_TYPE Type;
+};
+
+struct jani_texture_info
+{
+    const char* Path;
+    char*       Data;
+};
+
+struct jani_pipeline_buffer
+{
+    size_t                  Size;
+    JANI_BUFFER_TYPE        BufferType;
+    JANI_BUFFER_UPDATE_TYPE UpdateType;
+};
+
+// NOTE: Probably need to add an update frequency.
+struct jani_resource_binding
+{
+    JANI_BACKEND_RESOURCE_TYPE Type;
+    u32                        BindSlot;
+    size_t                     Size;
+    void                      *InitData;
+
+    union
+    {
+        JANI_BUFFER_UPDATE_TYPE UpdateType;
+    } Extra;
 };
 
 struct jani_pipeline_info
 {
-    const char *VertexShaderByteCode;
-    const char *PixelShaderByteCode;
+    jani_shader_info  *Shaders;
+    u32               ShaderCount;
 
-    size_t DefaultVertexBufferSize;
-    size_t DefaultIndexBufferSize;
+    jani_shader_input *Inputs;
+    u32               InputCount;
 
-    jani_shader_input* Inputs;
-    u32                InputCount;
+    jani_pipeline_buffer *Buffers;
+    u32                   BufferCount;
+
+    jani_resource_binding *Bindings;
+    u32                    BindingCount;
 };
+
+// TODO: Reserve the pipeline_handle 0 as the default one.
 
 // ===========================================
 // Drawing 
@@ -82,9 +167,8 @@ enum JANI_DRAW_META_TYPE
 
 struct draw_text_payload
 {
-    u8  *Text;
-    f32 PositionX;
-    f32 PositionY;
+    char *Text;
+    u32  Length;
 };
 
 struct draw_quad_payload
@@ -123,6 +207,50 @@ struct jani_draw_command
 
 };
 
+// ===========================================
+// Text 
+// ===========================================
+
+using jani_texture_handle = u32;
+
+struct jani_glyph
+{
+    u32 ID;
+    u32 PositionInAtlasX;
+    u32 PositionInAtlasY;
+    u32 SizeX;
+    u32 SizeY;
+    i32 OffsetX;
+    i32 OffsetY;
+    u32 XAdvance;
+};
+
+struct jani_font_map
+{
+    jani_glyph *Glyphs;
+    u32         GlyphCount;
+    u32         TextureSizeX;
+    u32         TextureSizeY;
+    u32         LineHeight;
+
+    bool Loaded;
+    bool Initialized;
+};
+
+jani_font_map
+LoadFontMap(char* Path);
+
+void
+SetFontMap(jani_context *Context, jani_font_map *Map);
+
+// ===========================================
+// Camera 
+// ===========================================
+
+struct jani_camera_2D
+{
+    jani_mat4 Orthohraphic;
+};
 
 // ===========================================
 // Frame
@@ -130,11 +258,18 @@ struct jani_draw_command
 
 struct jani_context
 {
-    jani_allocator             Allocator;
-    jani_backend*              Backend;
+    jani_allocator Allocator;
+    jani_backend*  Backend;
+
     JaniBumper<jani_draw_meta> CommandMetas;
-    i32                        SizeX;
-    i32                        SizeY;
+
+    // New
+    jani_font_map *ActiveFontMap;
+    jani_platform  Platform;
+    jani_camera_2D Camera;
+
+    i32 ClientWidth;
+    i32 ClientHeight;
 
     bool Initialized;
 };
@@ -145,9 +280,9 @@ struct sorted_metas
     u32             MetaCount;
 };
 
-
 void BeginUIFrame(jani_context *Context);
 void DrawBox     (jani_context *Context);
 void EndUIFrame  (jani_context *Context);
+void DrawText    (jani_context *Context, char* Text);
 
 }

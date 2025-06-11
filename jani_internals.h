@@ -256,4 +256,17 @@ struct jani_rect
     }
 };
 
+// -------------------------
+// Math 
+// -------------------------
+
+struct jani_mat4
+{
+    union
+    {
+        struct Columns { vec4 c0,c1,c2,c3; };
+        f32 AsArray[16];
+    } Data;
+};
+
 } // JANI Namespace
