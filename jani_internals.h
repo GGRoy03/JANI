@@ -7,6 +7,9 @@
 
 #define Jani_Assert(cond) do { if (!(cond)) __debugbreak(); } while (0)
 
+// WARN: This still uses malloc/free instead of the allocator 
+// which is wrong.
+
 namespace JANI
 {
 
@@ -29,6 +32,18 @@ struct JaniBumper
         Size     = 0;
         Capacity = AllocSize;
         Values   = (T*)malloc(AllocSize);
+    }
+
+    inline void Free()
+    {
+        if(Values)
+        {
+            free(Values);
+
+            Values   = nullptr;
+            Size     = 0;
+            Capacity = 0;
+        }
     }
 
     inline void Reset()
@@ -260,6 +275,7 @@ struct jani_rect
 // Math 
 // -------------------------
 
+// BUG: Uses vec4 which is not a real type in jani
 struct jani_mat4
 {
     union

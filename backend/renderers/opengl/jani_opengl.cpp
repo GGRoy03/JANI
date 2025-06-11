@@ -6,94 +6,44 @@
 namespace JANI
 {
 
-sorted_metas
-SortDraws(jani_context *Context)
+// WARN: This always use GL_DYNAMIC_DRAW as a flag which is wrong.
+void 
+PrepareDrawCommands(jani_backend_draw_list *List)
 {
-    sorted_metas Sorted = {};
-
-    // For now we allocate a new array of commands. These are sorted.
-    u32   CommandCount   = Context->CommandMetas.Size;
-    auto *SortedMetas = (jani_draw_meta*)
-        Context->Allocator.Allocate(CommandCount * sizeof(jani_draw_meta));
-
-    for(u32 Index = 0; Index < CommandCount; Index++)
+    if(List->VtxBuffer.FrameSize > List->VtxBuffer.Size)
     {
-        SortedMetas[Index] = Context->CommandMetas.Values[Index];
+        List->VtxBuffer.Size = List->VtxBuffer.FrameSize + Kilobytes(5);
+        glNamedBufferData(List->VtxBuffer.Buffer, List->VtxBuffer.Size,
+                          nullptr, GL_DYNAMIC_DRAW);
     }
 
-    // Simply use insertion sort for now.
-    i32 Left  = 0;
-    i32 Right = CommandCount - 1;
-    for(i32 Index = Left; Index < Right; Index++)
+    if(List->IdxBuffer.FrameSize > List->IdxBuffer.Size)
     {
-        jani_draw_meta *Meta = SortedMetas + Index;
-
-        auto Key      = Meta->PipelineHandle; 
-        i32  SubIndex = Index - 1;
-
-        while(SubIndex >= Left && Meta->PipelineHandle > Key)
-        {
-            SortedMetas[SubIndex + 1] = SortedMetas[SubIndex];
-            SubIndex = SubIndex - 1;
-        }
-        SortedMetas[SubIndex + 1] = *Meta; 
+        List->IdxBuffer.Size = List->IdxBuffer.FrameSize + Kilobytes(5);
+        glNamedBufferData(List->IdxBuffer.Buffer, List->IdxBuffer.Size,
+                          nullptr, GL_DYNAMIC_DRAW);
     }
 
-    Sorted.MetaCount = CommandCount;
-    Sorted.Metas     = SortedMetas;
-
-    return Sorted;
-}
-
-// NOTE: We could also consider doing 1 list / type of commands and just
-// loop over those perhaps?
-JaniBumper<jani_draw_command>
-BuildAndCopyData(jani_context *Context, sorted_metas *Sorted)
-{
-    jani_backend *Backend = Context->Backend;
-
-    size_t     AllocSize = Sorted->MetaCount * sizeof(jani_draw_command);
-    JaniBumper Commands  = JaniBumper<jani_draw_command>(AllocSize); // BUG: Leak?
-
-    jani_pipeline_state *CurrentPipeline = nullptr;
-
-    for(u32 Index = 0; Index < Sorted->MetaCount; Index++)
+    for(u32 Index = 0; Index < List->DrawInfos.Size; Index++)
     {
-        jani_draw_meta *Meta = Sorted->Metas + Index;
+        jani_draw_info Info = List->DrawInfos[Index];
 
-        u16   PipelineIndex = GET_INDEX_FROM_HANDLE(Meta->PipelineHandle);
-        auto *PState        = Backend->States + PipelineIndex;
-
-        if(PState != CurrentPipeline)
+        switch(Info.DrawType)
         {
-            if(PState->FrameVertexSize > PState->VertexBufferSize)
-            {
-                PState->VertexBufferSize = PState->FrameVertexSize + Kilobytes(5);
-                glNamedBufferData(PState->VertexBuffer,
-                                  PState->VertexBufferSize,
-                                  nullptr,
-                                  GL_DYNAMIC_DRAW);
-            }
 
-            if(PState->FrameIndexSize > PState->IndexBufferSize)
-            {
-                PState->IndexBufferSize = PState->FrameIndexSize + Kilobytes(5);
-                glNamedBufferData(PState->IndexBuffer,
-                                  PState->IndexBufferSize,
-                                  nullptr,
-                                  GL_DYNAMIC_DRAW);
-            }
-
-            CurrentPipeline = PState;
-        }
-
-        switch(Meta->Type)
-        {
-        case JANI_DRAW_META_TEXT:
+        case JANI_DRAW_MESH:
         {
         } break;
 
-        case JANI_DRAW_META_QUAD:
+        case JANI_DRAW_INSTANCED_MESH:
+        {
+        } break;
+
+        case JANI_DRAW_TEXT:
+        {
+        } break;
+
+        case JANI_DRAW_QUAD:
         {
             u32 VertexCount = 4;
             u32 IndexCount  = 6;
@@ -106,7 +56,7 @@ BuildAndCopyData(jani_context *Context, sorted_metas *Sorted)
                  0.25f,-0.25f, // Bottom left
             };
 
-            glNamedBufferSubData(PState->VertexBuffer, PState->FrameDataOffset,
+            glNamedBufferSubData(List->VtxBuffer.Buffer, List->VtxBuffer.WriteOffset,
                                  sizeof(QuadVerts), QuadVerts);
 
             GLuint QuadIndices[6] = {
@@ -114,43 +64,31 @@ BuildAndCopyData(jani_context *Context, sorted_metas *Sorted)
                 3, 2, 0
             };
 
-            glNamedBufferSubData(
-                PState->IndexBuffer,
-                PState->FrameIndexOffset,
-                sizeof(QuadIndices),
-                QuadIndices
-            );
+            glNamedBufferSubData(List->IdxBuffer.Buffer, List->IdxBuffer.IndexOffset,
+                                 sizeof(QuadIndices), QuadIndices);
 
             jani_draw_command Command = {};
             Command.Type              = JANI_DRAW_COMMAND_INDEXED_OFFSET;
             Command.Count             = IndexCount;
-            Command.Offset            = PState->FrameIndexOffset;
-            Command.BaseVertex        = PState->FrameBaseVertex;
-            Command.PipelineState     = PState;
+            Command.Offset            = List->IdxBuffer.IndexOffset;
+            Command.BaseVertex        = (u32)(List->IdxBuffer.BaseVertex);
 
-            Commands.Push(Command);
+            List->Commands.Push(Command);
 
-            PState->FrameIndexOffset += IndexCount * sizeof(u32);
-            PState->FrameBaseVertex  += VertexCount;
-            PState->FrameDataOffset  += sizeof(QuadVerts);
-        } break;
+            List->VtxBuffer.WriteOffset += sizeof(QuadVerts);
+            List->IdxBuffer.IndexOffset += IndexCount * sizeof(u32);
+            List->IdxBuffer.BaseVertex  += VertexCount;
 
-        default:
-        {
         } break;
 
         }
     }
-
-    Context->Allocator.Free(Sorted->Metas, Sorted->MetaCount * sizeof(jani_draw_meta));
-
-    return Commands;
 }
 
 static inline void
-BindResourceQueue(backend_resouce_queue *Queue)
+BindResourceQueue(jani_backend_resource_queue *Queue)
 {
-    for(u32 Index = 0; Index < Queue->Count; Index++)
+    for(u32 Index = 0; Index < Queue->At; Index++)
     {
         backend_resource *Resource = Queue->Resources + Index;
 
@@ -165,61 +103,49 @@ BindResourceQueue(backend_resouce_queue *Queue)
         case JANI_BACKEND_RESOURCE_CBUFFER:
         {
             glBindBufferBase(GL_UNIFORM_BUFFER, Resource->BindSlot,
-                             Resource->Data.CBuffer.Id);
+                             Resource->Data.CBuffer.Buffer);
         } break;
+
+        default:
+            break;
 
         }
     }
 }
 
-void 
-ExecuteDrawCommands(JaniBumper<jani_draw_command> *Commands)
+void
+DrawPipelineCommands(jani_pipeline_state *State)
 {
-    jani_pipeline_state *CurrentPipelineState = nullptr;
+    glBindProgramPipeline(State->Pipeline);
+    glBindVertexArray(State->VertexArrayObject);
+    BindResourceQueue(&State->ResourceQueue);
 
-    for(u32 Index = 0; Index < Commands->Size; Index++)
+    for(u32 Index = 0; Index < State->DrawList.Commands.Size; Index++)
     {
-        jani_draw_command *Command = Commands->Values + Index;
+        jani_draw_command Command = State->DrawList.Commands[Index];
 
-        if(Command->PipelineState != CurrentPipelineState)
-        {
-            // NOTE: Could also bind the first pipeline before entering the loop
-            // to avoid the if check?
-            if(CurrentPipelineState)
-            {
-                CurrentPipelineState->FrameVertexSize  = 0;
-                CurrentPipelineState->FrameIndexSize   = 0;
-                CurrentPipelineState->FrameIndexOffset = 0;
-                CurrentPipelineState->FrameDataOffset  = 0;
-                CurrentPipelineState->FrameBaseVertex  = 0;
-            }
-
-            glBindProgramPipeline(Command->PipelineState->Pipeline);
-            glBindVertexArray(Command->PipelineState->VertexArrayObject);
-
-            BindResourceQueue(&Command->PipelineState->ResourceQueue);
-
-            CurrentPipelineState = Command->PipelineState;
-
-        }
-
-        switch(Command->Type)
+        switch(Command.Type)
         {
 
         case JANI_DRAW_COMMAND_INDEXED_OFFSET:
         {
-            glDrawElementsBaseVertex(GL_TRIANGLES, Command->Count, GL_UNSIGNED_INT,
-                                    (const void*)Command->Offset, Command->BaseVertex);
+            glDrawElementsBaseVertex(GL_TRIANGLES, Command.Count, GL_UNSIGNED_INT,
+                                    (const void*)Command.Offset, Command.BaseVertex);
         } break;
 
         }
     }
 
-    CurrentPipelineState->FrameVertexSize = 0;
-    CurrentPipelineState->FrameIndexSize = 0;
-    CurrentPipelineState->FrameIndexOffset = 0;
-    CurrentPipelineState->FrameDataOffset = 0;
-    CurrentPipelineState->FrameBaseVertex = 0;
+    State->DrawList.VtxBuffer.FrameSize   = 0;
+    State->DrawList.VtxBuffer.WriteOffset = 0;
+
+    State->DrawList.IdxBuffer.FrameSize   = 0;
+    State->DrawList.IdxBuffer.IndexOffset = 0;
+    State->DrawList.IdxBuffer.BaseVertex  = 0;
+
+    State->DrawList.DrawInfos.Reset();
+    State->DrawList.Commands.Reset();
+
 }
 
 static inline GLenum
@@ -363,27 +289,31 @@ CreateAndBindBuffers(jani_pipeline_state *State, jani_pipeline_buffer *Buffers,
 
         case JANI_BUFFER_VERTEX:
         {
-            glCreateBuffers(1, &State->VertexBuffer);
+            glCreateBuffers(1, &State->DrawList.VtxBuffer.Buffer);
 
             GLenum Usage = GetBufferUsage(Buffer.UpdateType);
-            glNamedBufferData(State->VertexBuffer, Buffer.Size, nullptr, Usage);
+            glNamedBufferData(State->DrawList.VtxBuffer.Buffer,
+                              Buffer.Size, nullptr, Usage);
 
             glVertexArrayVertexBuffer(State->VertexArrayObject, 0,
-                                      State->VertexBuffer, 0, State->InputStride);
+                                      State->DrawList.VtxBuffer.Buffer, 0,
+                                      State->InputStride);
 
-            State->VertexBufferSize = Buffer.Size;
+            State->DrawList.VtxBuffer.Size = Buffer.Size;
         } break;
 
         case JANI_BUFFER_INDEX:
         {
-            glCreateBuffers(1, &State->IndexBuffer);
+            glCreateBuffers(1, &State->DrawList.IdxBuffer.Buffer);
 
             GLenum Usage = GetBufferUsage(Buffer.UpdateType);
-            glNamedBufferData(State->IndexBuffer, Buffer.Size, nullptr, Usage);
+            glNamedBufferData(State->DrawList.IdxBuffer.Buffer, Buffer.Size,
+                              nullptr, Usage);
 
-            glVertexArrayElementBuffer(State->VertexArrayObject, State->IndexBuffer);
+            glVertexArrayElementBuffer(State->VertexArrayObject, 
+                                       State->DrawList.IdxBuffer.Buffer);
 
-            State->IndexBufferSize = Buffer.Size;
+            State->DrawList.IdxBuffer.Size = Buffer.Size;
         } break;
 
         }
@@ -391,7 +321,7 @@ CreateAndBindBuffers(jani_pipeline_state *State, jani_pipeline_buffer *Buffers,
 }
 
 static inline backend_resource*
-GetNextResource(backend_resource_queue *Queue)
+GetNextResource(jani_backend_resource_queue *Queue)
 {
     Jani_Assert(Queue);
 
@@ -466,8 +396,7 @@ CreateAndBindResources(jani_pipeline_state *State, jani_resource_binding *Bindin
 
         } break;
 
-        // BUG: Flags in glMapNamedBufferRange should depend on the buffer
-        // usage.
+        // BUG: Flags in glMapNamedBufferRange should depend on the buffer usage.
         case JANI_BACKEND_RESOURCE_CBUFFER:
         {
             Jani_Assert(Binding.Size > 0);
@@ -531,8 +460,9 @@ CreatePipeline(jani_context *Context, jani_pipeline_info Info)
         glCreateVertexArrays(1, &State->VertexArrayObject);
         glCreateProgramPipelines(1, &State->Pipeline);
 
-        backend_resource_queue *Queue = &State->ResourceQueue;
-        jani_allocator         *A     = &Context->Allocator;
+        jani_backend_resource_queue *Queue = &State->ResourceQueue;
+        jani_allocator              *A     = &Context->Allocator;
+
         Queue->Capacity  = Info.BindingCount;
         Queue->Resources = (backend_resource*)
             A->Allocate(Queue->Capacity * sizeof(backend_resource));

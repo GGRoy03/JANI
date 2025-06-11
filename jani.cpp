@@ -101,12 +101,10 @@ SetFontMap(jani_context *Context, jani_font_map *Map)
 void
 BeginUIFrame(jani_context *Context)
 {
+    // TODO: Context allocation
     if(!Context->Initialized)
     {
-        Context->Allocator    = jani_allocator(Megabytes(5));
-        Context->CommandMetas = JaniBumper<jani_draw_meta>(8 * sizeof(jani_draw_meta));
-        Context->Backend = (jani_backend*)
-            Context->Allocator.Allocate(sizeof(jani_backend));
+        Context->Allocator = jani_allocator(Megabytes(5));
 
         Context->Initialized = true;
     }
@@ -119,58 +117,103 @@ BeginUIFrame(jani_context *Context)
 void 
 DrawBox(jani_context *Context)
 {
-    jani_draw_meta Command = {};
-    Command.PipelineHandle = Context->Backend->ActivePipeline;
-    Command.Type           = JANI_DRAW_META_QUAD;
+    jani_draw_info Info  = {};
+    Info.DrawType        = JANI_DRAW_QUAD;
+    Info.VtxBufferTarget = 0;
+    Info.IdxBufferTarget = 0;
 
-    draw_quad_payload Payload = {};
-    Payload.SizeX             = 500;
-    Payload.SizeY             = 500;
-    Payload.TopLeftX          = 300;
-    Payload.TopLeftY          = 300;
-    Command.Payload.Quad      = Payload;
+    draw_quad_payload *Payload = &Info.Payload.Quad;
+    Payload->SizeX             = 500;
+    Payload->SizeY             = 500;
+    Payload->TopLeftX          = 300;
+    Payload->TopLeftY          = 300;
 
-    Context->CommandMetas.Push(Command);
-
-    // WARN: This might be done sowewhere else? Still unsure. Maybe append
-    // the size to the command metadata?
     jani_pipeline_handle CurrentHandle = Context->Backend->ActivePipeline;
     u16                  CurrentIndex  = GET_INDEX_FROM_HANDLE(CurrentHandle);
     jani_pipeline_state  *State        = Context->Backend->States + CurrentIndex;
 
-    State->FrameVertexSize += 4 * State->InputStride;
-    State->FrameIndexSize  += 6 * sizeof(u32);
+    State->DrawList.VtxBuffer.FrameSize += 4 * State->InputStride;
+    State->DrawList.IdxBuffer.FrameSize += 6 * sizeof(u32);
+}
+
+void
+DrawBox(jani_context *Context, jani_pipeline_handle Handle)
+{
+    jani_draw_info Info  = {};
+    Info.DrawType        = JANI_DRAW_QUAD;
+    Info.VtxBufferTarget = 0;
+    Info.IdxBufferTarget = 0;
+
+    draw_quad_payload *Payload = &Info.Payload.Quad;
+    Payload->SizeX             = 500;
+    Payload->SizeY             = 500;
+    Payload->TopLeftX          = 300;
+    Payload->TopLeftY          = 300;
+
+    u16                  Index  = GET_INDEX_FROM_HANDLE(Handle);
+    jani_pipeline_state  *State = Context->Backend->States + Index;
+
+    State->DrawList.VtxBuffer.FrameSize += 4 * State->InputStride;
+    State->DrawList.IdxBuffer.FrameSize += 6 * sizeof(u32);
+
+    State->DrawList.DrawInfos.Push(Info);
 }
 
 void
 DrawText(jani_context *Context, char* Text)
 {
-    jani_draw_meta Meta = {};
-    Meta.PipelineHandle = Context->Backend->ActivePipeline;
-    Meta.Type           = JANI_DRAW_META_TEXT;
+    jani_draw_info Info  = {};
+    Info.DrawType        = JANI_DRAW_TEXT;
+    Info.VtxBufferTarget = 0;
+    Info.IdxBufferTarget = 0;
 
     draw_text_payload Payload = {};
     Payload.Text              = Text;
     Payload.Length            = StringLength(Text);
 
-    Context->CommandMetas.Push(Meta);
-
     jani_pipeline_handle CurrentHandle = Context->Backend->ActivePipeline;
     u16                  CurrentIndex  = GET_INDEX_FROM_HANDLE(CurrentHandle);
-    jani_pipeline_state  *State        = Context->Backend->States + CurrentIndex;
+    jani_pipeline_state *State         = Context->Backend->States + CurrentIndex;
 
-    State->FrameVertexSize += Payload.Length * 4 * State->InputStride;
+    State->DrawList.VtxBuffer.FrameSize += Payload.Length * 4 * State->InputStride;
+
+    State->DrawList.DrawInfos.Push(Info);
 }
 
 void
+DrawText(jani_context *Context, char* Text, jani_pipeline_handle Handle)
+{
+    jani_draw_info Info  = {};
+    Info.DrawType        = JANI_DRAW_TEXT;
+    Info.VtxBufferTarget = 0;
+    Info.IdxBufferTarget = 0;
+
+    draw_text_payload Payload = {};
+    Payload.Text              = Text;
+    Payload.Length            = StringLength(Text);
+
+    u16                  Index  = GET_INDEX_FROM_HANDLE(Handle);
+    jani_pipeline_state *State  = Context->Backend->States + Index;
+
+    State->DrawList.VtxBuffer.FrameSize += Payload.Length * 4 * State->InputStride;
+
+    State->DrawList.DrawInfos.Push(Info);
+}
+
+// NOTE: This might cause huge issues of draw orders.
+void
 EndUIFrame(jani_context *Context)
 {
-    sorted_metas Sorted   = SortDraws(Context);
-    JaniBumper   Commands = BuildAndCopyData(Context, &Sorted);
-    ExecuteDrawCommands(&Commands);
+    for(u32 Index = 0; Index < Context->Backend->PipelineBufferSize; Index++)
+    {
+        jani_pipeline_state *Pipeline = Context->Backend->States + Index;
 
-    // Clean-up
-    Context->CommandMetas.Reset();
+        if(Pipeline->VertexArrayObject != 0)
+        {
+            PrepareDrawCommands(&Pipeline->DrawList);
+            DrawPipelineCommands(Pipeline);
+        }
+    }
 }
 
 }

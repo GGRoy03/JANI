@@ -120,7 +120,6 @@ struct jani_pipeline_buffer
     JANI_BUFFER_UPDATE_TYPE UpdateType;
 };
 
-// NOTE: Probably need to add an update frequency.
 struct jani_resource_binding
 {
     JANI_BACKEND_RESOURCE_TYPE Type;
@@ -155,14 +154,14 @@ struct jani_pipeline_info
 // Drawing 
 // ===========================================
 
-enum JANI_DRAW_META_TYPE
+enum JANI_DRAW_TYPE
 { 
-    JANI_DRAW_META_NONE,
+    JANI_DRAW_NONE,
 
-    JANI_DRAW_META_MESH,
-    JANI_DRAW_META_INSTANCED_MESH,
-    JANI_DRAW_META_TEXT,
-    JANI_DRAW_META_QUAD,
+    JANI_DRAW_MESH,
+    JANI_DRAW_INSTANCED_MESH,
+    JANI_DRAW_TEXT,
+    JANI_DRAW_QUAD,
 };
 
 struct draw_text_payload
@@ -179,10 +178,11 @@ struct draw_quad_payload
     u32 TopLeftY;
 };
 
-struct jani_draw_meta
+struct jani_draw_info
 {
-    JANI_DRAW_META_TYPE  Type;
-    jani_pipeline_handle PipelineHandle;
+    JANI_DRAW_TYPE DrawType;
+    u32            VtxBufferTarget;
+    u32            IdxBufferTarget;
 
     union
     {
@@ -201,17 +201,13 @@ struct jani_draw_command
 {
     JANI_DRAW_COMMAND_TYPE Type;
     u32                    Count;
-    u64                    Offset;
+    size_t                 Offset;
     u32                    BaseVertex;
-    jani_pipeline_state   *PipelineState;
-
 };
 
 // ===========================================
 // Text 
 // ===========================================
-
-using jani_texture_handle = u32;
 
 struct jani_glyph
 {
@@ -261,9 +257,7 @@ struct jani_context
     jani_allocator Allocator;
     jani_backend*  Backend;
 
-    JaniBumper<jani_draw_meta> CommandMetas;
-
-    // New
+    // Still a bit messy.
     jani_font_map *ActiveFontMap;
     jani_platform  Platform;
     jani_camera_2D Camera;
@@ -272,12 +266,6 @@ struct jani_context
     i32 ClientHeight;
 
     bool Initialized;
-};
-
-struct sorted_metas
-{
-    jani_draw_meta *Metas;
-    u32             MetaCount;
 };
 
 void BeginUIFrame(jani_context *Context);

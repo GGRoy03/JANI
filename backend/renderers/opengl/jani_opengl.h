@@ -35,7 +35,9 @@ struct backend_resource
     } Data;
 };
 
-struct backend_resource_queue
+// NOTE: Do we just use a bumper? I don't think so because, this will be changed
+// soon enough for resource access. This should change.
+struct jani_backend_resource_queue
 {
     backend_resource *Resources;
     u32               Capacity;
@@ -51,30 +53,49 @@ struct jani_backend
     u16                  NextPipelineID;
     jani_pipeline_handle ActivePipeline;
 
-    backend_resource_queue GlobalResourceQueue;
-
     bool Valid;
+};
+
+struct jani_backend_vertex_buffer
+{
+    GLuint Buffer;
+
+    size_t WriteOffset;
+
+    size_t FrameSize;
+    size_t Size;
+};
+
+struct jani_backend_index_buffer
+{
+    GLuint Buffer;
+
+    size_t IndexOffset;
+    size_t BaseVertex;
+
+    size_t FrameSize;
+    size_t Size;
+};
+
+struct jani_backend_draw_list
+{
+    jani_backend_vertex_buffer VtxBuffer;
+    jani_backend_index_buffer  IdxBuffer;
+
+    JaniBumper<jani_draw_info>    DrawInfos;
+    JaniBumper<jani_draw_command> Commands;
+
+    jani_pipeline_state *Pipeline;
 };
 
 struct jani_pipeline_state
 {
+    GLuint VertexArrayObject;
     GLuint Pipeline;
     u32    InputStride;
 
-    GLuint IndexBuffer;
-    GLuint VertexBuffer;
-    GLuint VertexArrayObject;
-
-    size_t VertexBufferSize; // NOTE: Isn't that limited to 1/pipeline?
-    size_t IndexBufferSize;
-
-    size_t  FrameVertexSize;
-    size_t  FrameIndexSize;
-    GLuint  FrameIndexOffset;
-    GLsizei FrameDataOffset;
-    GLint   FrameBaseVertex;
-
-    backend_resource_queue ResourceQueue;
+    jani_backend_draw_list      DrawList;
+    jani_backend_resource_queue ResourceQueue;
 
     jani_bit_field EnabledShaders;
 };
@@ -84,8 +105,5 @@ CreatePipeline(jani_context *Context, jani_pipeline_info PipelineInfo);
 
 void inline
 SetPipelineState(jani_backend *Backend, jani_pipeline_handle PipelineHandle);
-
-void 
-ExecuteDrawCommands(JaniBumper<jani_draw_command> *Commands);
 
 }
