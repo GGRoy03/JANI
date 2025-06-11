@@ -8,9 +8,9 @@ namespace JANI
 // ===========================================
 
 static u32
-StringLength(char* String)
+StringLength(const char* String)
 {
-    char* Start = String;
+    const char* Start = String;
     while(*String) String++;
     return (u32)(String - Start);
 }
@@ -101,10 +101,11 @@ SetFontMap(jani_context *Context, jani_font_map *Map)
 void
 BeginUIFrame(jani_context *Context)
 {
-    // TODO: Context allocation
     if(!Context->Initialized)
     {
         Context->Allocator = jani_allocator(Megabytes(5));
+        Context->Backend   = (jani_backend*)
+            Context->Allocator.Allocate(sizeof(jani_backend));
 
         Context->Initialized = true;
     }
@@ -160,7 +161,7 @@ DrawBox(jani_context *Context, jani_pipeline_handle Handle)
 }
 
 void
-DrawText(jani_context *Context, char* Text)
+Text(jani_context *Context, const char* Text)
 {
     jani_draw_info Info  = {};
     Info.DrawType        = JANI_DRAW_TEXT;
@@ -181,7 +182,7 @@ DrawText(jani_context *Context, char* Text)
 }
 
 void
-DrawText(jani_context *Context, char* Text, jani_pipeline_handle Handle)
+Text(jani_context *Context, const char* Text, jani_pipeline_handle Handle)
 {
     jani_draw_info Info  = {};
     Info.DrawType        = JANI_DRAW_TEXT;
@@ -200,7 +201,7 @@ DrawText(jani_context *Context, char* Text, jani_pipeline_handle Handle)
     State->DrawList.DrawInfos.Push(Info);
 }
 
-// NOTE: This might cause huge issues of draw orders.
+// NOTE: This might cause huge issues because of draw orders.
 void
 EndUIFrame(jani_context *Context)
 {

@@ -46,7 +46,7 @@ using  jani_bit_field       = u32;
 #define INVALID_ID 0xFFFF
 #define MAKE_PIPELINE_HANDLE(ID, INDEX) (jani_pipeline_handle)((ID << 16) | INDEX)
 #define GET_ID_FROM_HANDLE(Handle)      (Handle >> 16)
-#define GET_INDEX_FROM_HANDLE(Handle)   (u16)(Handle & 0xFFFF0000)
+#define GET_INDEX_FROM_HANDLE(Handle)   (u16)(Handle & 0x0000FFFF)
 
 #ifndef JANI_DEFAULT_PIPELINE_COUNT
 #define JANI_DEFAULT_PIPELINE_COUNT 4
@@ -166,8 +166,8 @@ enum JANI_DRAW_TYPE
 
 struct draw_text_payload
 {
-    char *Text;
-    u32  Length;
+    const char *Text;
+    u32         Length;
 };
 
 struct draw_quad_payload
@@ -268,9 +268,13 @@ struct jani_context
     bool Initialized;
 };
 
-void BeginUIFrame(jani_context *Context);
-void DrawBox     (jani_context *Context);
+void BeginUIFrame(jani_context* Context);
 void EndUIFrame  (jani_context *Context);
-void DrawText    (jani_context *Context, char* Text);
+
+void DrawBox(jani_context* Context);
+void DrawBox(jani_context* Context, jani_pipeline_handle Handle);
+
+void Text(jani_context *Context, const char* Text);
+void Text(jani_context *Context, const char* Text, jani_pipeline_handle Handle);
 
 }

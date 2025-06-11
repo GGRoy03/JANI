@@ -6,7 +6,7 @@
 namespace JANI
 {
 
-// WARN: This always use GL_DYNAMIC_DRAW as a flag which is wrong.
+// WARN: This always uses GL_DYNAMIC_DRAW as a flag which is wrong.
 void 
 PrepareDrawCommands(jani_backend_draw_list *List)
 {
@@ -275,6 +275,22 @@ GetBufferUsage(JANI_BUFFER_UPDATE_TYPE Type)
     }
 }
 
+static inline GLbitfield
+GetBufferStorageFlags(JANI_BUFFER_UPDATE_TYPE Type)
+{
+    switch (Type)
+    {
+
+    case JANI_BUFFER_UPDATE_PER_FRAME: return GL_MAP_WRITE_BIT | GL_DYNAMIC_STORAGE_BIT;
+
+    default:
+    {
+        Jani_Assert(!"Unknown buffer update type\n");
+        return GL_DYNAMIC_DRAW;
+    } break;
+
+    }
+}
 
 static inline void
 CreateAndBindBuffers(jani_pipeline_state *State, jani_pipeline_buffer *Buffers,
@@ -335,7 +351,6 @@ GetNextResource(jani_backend_resource_queue *Queue)
     return Resource;
 }
 
-
 static inline void
 CreateAndBindResources(jani_pipeline_state *State, jani_resource_binding *Bindings,
                        u32 BindingCount)
@@ -372,9 +387,13 @@ CreateAndBindResources(jani_pipeline_state *State, jani_resource_binding *Bindin
                                  Channels == 3 ? GL_RGB  :
                                  Channels == 1 ? GL_RED  : 
                                                  GL_RGB);
+                GLenum InternalFormat = (Channels == 4 ? GL_RGBA8 :
+                                         Channels == 3 ? GL_RGB8  :
+                                                         GL_R8);
 
                 backend_texture *Texture = &Resource->Data.Texture;
                 glCreateTextures(GL_TEXTURE_2D, 1, &Texture->Id);
+                glTextureStorage2D(Texture->Id, 1, InternalFormat, Width, Height);
 
                 glTextureParameteri(Texture->Id, GL_TEXTURE_WRAP_S, GL_REPEAT);
                 glTextureParameteri(Texture->Id, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -405,14 +424,11 @@ CreateAndBindResources(jani_pipeline_state *State, jani_resource_binding *Bindin
 
             glCreateBuffers(1, &CBuffer->Buffer);
 
-            GLenum Usage = GetBufferUsage(Binding.Extra.UpdateType);
+            GLbitfield Flags = GetBufferStorageFlags(Binding.Extra.UpdateType);
             glNamedBufferStorage(CBuffer->Buffer, Binding.Size, Binding.InitData,
-                                 Usage);
+                                 Flags);
 
             CBuffer->SizeOfData = Binding.Size;
-            CBuffer->DataPointer = 
-                        glMapNamedBufferRange(CBuffer->Buffer, 0, Binding.Size,
-                                              GL_DYNAMIC_STORAGE_BIT|GL_MAP_WRITE_BIT);
         } break;
 
         default:
@@ -429,10 +445,24 @@ CreatePipeline(jani_context *Context, jani_pipeline_info Info)
 {
     Jani_Assert(Context);
 
-    jani_backend   *Backend   = Context->Backend;
+    jani_backend *Backend = Context->Backend;
 
-    // NOTE: We used to initialize the backend here, but it is a mistake
-    // so do it elsewhere.
+    if(!Backend->Initialized)
+    {
+        jani_allocator *A = &Context->Allocator;
+
+        Backend->PipelineBufferSize = 4;
+        Backend->NextPipelineID     = 1;
+        Backend->StateIDs           = (u16*)A->Allocate(4 * sizeof(u16));
+
+        // WARN: This overwrites the default pipeline slot. So be careful.
+        memset(Backend->StateIDs, INVALID_ID, 4 * sizeof(u16)); 
+
+        Backend->States = (jani_pipeline_state*)
+            A->Allocate(4 * sizeof(jani_pipeline_state));
+
+        Backend->Initialized = true;
+    }
 
     jani_pipeline_state *State    = nullptr;
     u16                  Id       = Backend->NextPipelineID;
@@ -461,11 +491,15 @@ CreatePipeline(jani_context *Context, jani_pipeline_info Info)
         glCreateProgramPipelines(1, &State->Pipeline);
 
         jani_backend_resource_queue *Queue = &State->ResourceQueue;
+        jani_backend_draw_list      *List  = &State->DrawList;
         jani_allocator              *A     = &Context->Allocator;
 
         Queue->Capacity  = Info.BindingCount;
         Queue->Resources = (backend_resource*)
             A->Allocate(Queue->Capacity * sizeof(backend_resource));
+
+        List->DrawInfos = JaniBumper<jani_draw_info>   (10*sizeof(jani_draw_info));
+        List->Commands  = JaniBumper<jani_draw_command>(10*sizeof(jani_draw_command));
 
         CreateAndBindShaders   (State, Info.Shaders , Info.ShaderCount );
         CreateAndSetInputLayout(State, Info.Inputs  , Info.InputCount  );

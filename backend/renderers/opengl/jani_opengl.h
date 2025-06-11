@@ -20,7 +20,6 @@ struct backend_constant_buffer
 {
     size_t SizeOfData;
     GLuint Buffer;
-    void  *DataPointer;
 };
 
 struct backend_resource
@@ -53,7 +52,7 @@ struct jani_backend
     u16                  NextPipelineID;
     jani_pipeline_handle ActivePipeline;
 
-    bool Valid;
+    bool Initialized;
 };
 
 struct jani_backend_vertex_buffer
@@ -84,8 +83,6 @@ struct jani_backend_draw_list
 
     JaniBumper<jani_draw_info>    DrawInfos;
     JaniBumper<jani_draw_command> Commands;
-
-    jani_pipeline_state *Pipeline;
 };
 
 struct jani_pipeline_state
