@@ -34,8 +34,6 @@ struct backend_resource
     } Data;
 };
 
-// NOTE: Do we just use a bumper? I don't think so because, this will be changed
-// soon enough for resource access. This should change.
 struct jani_backend_resource_queue
 {
     backend_resource *Resources;
@@ -45,7 +43,6 @@ struct jani_backend_resource_queue
 
 struct jani_backend
 {
-    // Pipelines
     u32                  PipelineBufferSize;
     u16                 *StateIDs;
     jani_pipeline_state *States;
@@ -90,9 +87,13 @@ struct jani_pipeline_state
     GLuint VertexArrayObject;
     GLuint Pipeline;
     u32    InputStride;
+    u32    InputCount;
 
     jani_backend_draw_list      DrawList;
     jani_backend_resource_queue ResourceQueue;
+
+    jani_vertex_generator *Generators;
+    jani_vertex_generator  IndexGenerator;
 
     jani_bit_field EnabledShaders;
 };

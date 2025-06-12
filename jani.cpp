@@ -1,5 +1,8 @@
 #include "jani.h"
 
+// WARN: Still unsure how to structure the code base.
+#include "jani_internals.cpp"
+
 namespace JANI
 {
 
@@ -211,7 +214,7 @@ EndUIFrame(jani_context *Context)
 
         if(Pipeline->VertexArrayObject != 0)
         {
-            PrepareDrawCommands(&Pipeline->DrawList);
+            PrepareDrawCommands(Context, Pipeline);
             DrawPipelineCommands(Pipeline);
         }
     }

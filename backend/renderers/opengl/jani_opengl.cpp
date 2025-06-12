@@ -8,8 +8,10 @@ namespace JANI
 
 // WARN: This always uses GL_DYNAMIC_DRAW as a flag which is wrong.
 void 
-PrepareDrawCommands(jani_backend_draw_list *List)
+PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
 {
+    jani_backend_draw_list *List = &State->DrawList;
+
     if(List->VtxBuffer.FrameSize > List->VtxBuffer.Size)
     {
         List->VtxBuffer.Size = List->VtxBuffer.FrameSize + Kilobytes(5);
@@ -23,6 +25,13 @@ PrepareDrawCommands(jani_backend_draw_list *List)
         glNamedBufferData(List->IdxBuffer.Buffer, List->IdxBuffer.Size,
                           nullptr, GL_DYNAMIC_DRAW);
     }
+
+    size_t              OutputSize = State->InputCount * sizeof(jani_vertex_output);
+    jani_vertex_output *Outputs    = (jani_vertex_output*)
+        Context->Allocator.Allocate(OutputSize);
+
+    // WARN: This loop puts a lot of pressure on the allocator. We could 
+    // allocate a big chunk up front and use some sort of stack.
 
     for(u32 Index = 0; Index < List->DrawInfos.Size; Index++)
     {
@@ -45,40 +54,66 @@ PrepareDrawCommands(jani_backend_draw_list *List)
 
         case JANI_DRAW_QUAD:
         {
-            u32 VertexCount = 4;
-            u32 IndexCount  = 6;
+            size_t CurrentIndexOffset = List->IdxBuffer.IndexOffset;
+            u32    CurrentBaseVertex  = (u32)List->IdxBuffer.BaseVertex;
 
-            f32 QuadVerts[8] =
+            // 1) Generate the full data for a given input
+            for(u32 Output = 0; Output < State->InputCount; Output++)
             {
-                -0.25f, 0.25f, // Top-left
-                 0.25f, 0.25f, // Top-right
-                -0.25f,-0.25f, // Bottom right
-                 0.25f,-0.25f, // Bottom left
-            };
+                Outputs[Index] = State->Generators[Index](Context, nullptr, nullptr);
+            }
 
-            glNamedBufferSubData(List->VtxBuffer.Buffer, List->VtxBuffer.WriteOffset,
-                                 sizeof(QuadVerts), QuadVerts);
+            // 2) Write that data into the buffer (interleaved is forced for now)
+            for(u32 Quad = 0; Quad < 4; Quad)
+            {
+                for(u32 Output = 0; Output < State->InputCount; Output++)
+                {
+                    jani_vertex_output *Vertex = Outputs + Output;
 
-            GLuint QuadIndices[6] = {
-                0, 1, 3,
-                3, 2, 0
-            };
+                    glNamedBufferSubData(List->VtxBuffer.Buffer,
+                                         List->VtxBuffer.WriteOffset,
+                                         Vertex->Stride,
+                                         (u8*)Vertex->Data + Vertex->Offset);
 
-            glNamedBufferSubData(List->IdxBuffer.Buffer, List->IdxBuffer.IndexOffset,
-                                 sizeof(QuadIndices), QuadIndices);
+                    Vertex->Offset              += Vertex->Stride;
+                    List->VtxBuffer.WriteOffset += Vertex->Stride;
+                }
+            }
 
+            // 3) If there is an index buffer, use the index generator to
+            // generate the data and write it.
+            if(List->IdxBuffer.Buffer != 0)
+            {
+                jani_vertex_output Output = 
+                            State->IndexGenerator(Context, nullptr, nullptr);
+
+                glNamedBufferSubData(List->IdxBuffer.Buffer,
+                                     List->IdxBuffer.IndexOffset,
+                                     Output.Size, Output.Data);
+
+                List->IdxBuffer.IndexOffset += Output.Size;
+                List->IdxBuffer.BaseVertex  += 4;
+
+                Context->Allocator.Free(Output.Data, Output.Size);
+            }
+
+            // 4) Cleanup the data we just allocated for the outputs and their data.
+            for(u32 Output = 0; Output < State->InputCount; Output++)
+            {
+                jani_vertex_output *Vertex = Outputs + Output;
+
+                Context->Allocator.Free(Vertex->Data, Vertex->Size);
+            }
+            Context->Allocator.Free(Outputs, OutputSize);
+
+            // 5) Write the commands as usual.
             jani_draw_command Command = {};
             Command.Type              = JANI_DRAW_COMMAND_INDEXED_OFFSET;
-            Command.Count             = IndexCount;
-            Command.Offset            = List->IdxBuffer.IndexOffset;
-            Command.BaseVertex        = (u32)(List->IdxBuffer.BaseVertex);
+            Command.Count             = 4;
+            Command.Offset            = CurrentIndexOffset;
+            Command.BaseVertex        = CurrentBaseVertex;
 
             List->Commands.Push(Command);
-
-            List->VtxBuffer.WriteOffset += sizeof(QuadVerts);
-            List->IdxBuffer.IndexOffset += IndexCount * sizeof(u32);
-            List->IdxBuffer.BaseVertex  += VertexCount;
-
         } break;
 
         }
@@ -108,7 +143,6 @@ BindResourceQueue(jani_backend_resource_queue *Queue)
 
         default:
             break;
-
         }
     }
 }
@@ -238,7 +272,7 @@ GetSizeOfNativeDataType(GLenum Type)
     }
 }
 
-static void inline
+static inline void
 CreateAndSetInputLayout(jani_pipeline_state *State, jani_shader_input *Inputs,
                         u32 InputCount)
 {
@@ -255,6 +289,24 @@ CreateAndSetInputLayout(jani_pipeline_state *State, jani_shader_input *Inputs,
         glEnableVertexArrayAttrib (State->VertexArrayObject, Index);
 
         State->InputStride += (u32)(Input.Count * Size);
+
+        switch(Input.GeneratorType)
+        {
+
+        case JANI_VERTEX_GEN_QUAD_POSITION_2D:
+        {
+            State->Generators[Index] = GenerateQuadVertex;
+        } break;
+
+        case JANI_VERTEX_GEN_QUAD_COLOR:
+        {
+            State->Generators[Index] = GenerateQuadColor;
+        } break;
+
+        default:
+            Jani_Assert(!"Vertex generator type not implemented by the opengl backend");
+            break;
+        }
     }
 }
 
@@ -500,6 +552,11 @@ CreatePipeline(jani_context *Context, jani_pipeline_info Info)
 
         List->DrawInfos = JaniBumper<jani_draw_info>   (10*sizeof(jani_draw_info));
         List->Commands  = JaniBumper<jani_draw_command>(10*sizeof(jani_draw_command));
+
+        State->InputCount     = Info.InputCount;
+        State->IndexGenerator = GenerateQuadIndex;
+        State->Generators     = (jani_vertex_generator*)
+            A->Allocate(State->InputCount*sizeof(jani_vertex_generator));
 
         CreateAndBindShaders   (State, Info.Shaders , Info.ShaderCount );
         CreateAndSetInputLayout(State, Info.Inputs  , Info.InputCount  );

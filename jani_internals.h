@@ -4,8 +4,8 @@
 #include <cstdlib> // Malloc
 #include <cstring> // memcpy - memset
 
-
 #define Jani_Assert(cond) do { if (!(cond)) __debugbreak(); } while (0)
+#define Jani_Unused(x) (void)(x)
 
 // WARN: This still uses malloc/free instead of the allocator 
 // which is wrong.
@@ -270,6 +270,40 @@ struct jani_rect
         Size.x == o.Size.x && Size.y == o.Size.y;
     }
 };
+
+// =========================
+// JANI GENERATORS
+// ========================
+
+enum JANI_VERTEX_GENERATOR_TYPE
+{
+    JANI_VERTEX_GEN_QUAD_POSITION_2D,
+    JANI_VERTEX_GEN_QUAD_TEXTURE_2D ,
+    JANI_VERTEX_GEN_QUAD_COLOR      ,
+    JANI_VERTEX_GEN_CUSTOM          ,
+};
+
+struct jani_vertex_output
+{
+    void  *Data;
+    size_t Offset;
+    u32    Stride;
+    size_t Size;
+};
+
+struct jani_context;
+
+using jani_vertex_generator =
+jani_vertex_output(*)(jani_context *Context, void *Payload, void *User);
+
+inline jani_vertex_output
+GenerateQuadVertex(jani_context *Context, void *Payload, void *User);
+
+inline jani_vertex_output
+GenerateQuadColor(jani_context *Context, void *Payload, void *User);
+
+inline jani_vertex_output
+GenerateQuadIndex(jani_context *Context, void *Payload, void *User);
 
 // -------------------------
 // Math 

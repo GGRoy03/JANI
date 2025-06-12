@@ -99,6 +99,10 @@ struct jani_shader_input
     JANI_TYPE Type;
     u32       Count;
     u32       BufferIndex;
+
+    // Vertex gen
+    JANI_VERTEX_GENERATOR_TYPE GeneratorType;
+    jani_vertex_generator      UserGenerator;
 };
 
 struct jani_shader_info
@@ -135,14 +139,14 @@ struct jani_resource_binding
 
 struct jani_pipeline_info
 {
-    jani_shader_info  *Shaders;
-    u32               ShaderCount;
+    jani_shader_info *Shaders;
+    u32              ShaderCount;
 
     jani_shader_input *Inputs;
     u32               InputCount;
 
-    jani_pipeline_buffer *Buffers;
-    u32                   BufferCount;
+    jani_pipeline_buffer*Buffers;
+    u32                  BufferCount;
 
     jani_resource_binding *Bindings;
     u32                    BindingCount;
