@@ -57,14 +57,12 @@ PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
             size_t CurrentIndexOffset = List->IdxBuffer.IndexOffset;
             u32    CurrentBaseVertex  = (u32)List->IdxBuffer.BaseVertex;
 
-            // 1) Generate the full data for a given input
             for(u32 Output = 0; Output < State->InputCount; Output++)
             {
-                Outputs[Index] = State->Generators[Index](Context, nullptr, nullptr);
+                Outputs[Output] = State->Generators[Output](Context, nullptr, nullptr);
             }
 
-            // 2) Write that data into the buffer (interleaved is forced for now)
-            for(u32 Quad = 0; Quad < 4; Quad)
+            for(u32 Quad = 0; Quad < 4; Quad++)
             {
                 for(u32 Output = 0; Output < State->InputCount; Output++)
                 {
@@ -80,8 +78,6 @@ PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
                 }
             }
 
-            // 3) If there is an index buffer, use the index generator to
-            // generate the data and write it.
             if(List->IdxBuffer.Buffer != 0)
             {
                 jani_vertex_output Output = 
@@ -97,7 +93,6 @@ PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
                 Context->Allocator.Free(Output.Data, Output.Size);
             }
 
-            // 4) Cleanup the data we just allocated for the outputs and their data.
             for(u32 Output = 0; Output < State->InputCount; Output++)
             {
                 jani_vertex_output *Vertex = Outputs + Output;
@@ -106,10 +101,9 @@ PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
             }
             Context->Allocator.Free(Outputs, OutputSize);
 
-            // 5) Write the commands as usual.
             jani_draw_command Command = {};
             Command.Type              = JANI_DRAW_COMMAND_INDEXED_OFFSET;
-            Command.Count             = 4;
+            Command.Count             = 6;
             Command.Offset            = CurrentIndexOffset;
             Command.BaseVertex        = CurrentBaseVertex;
 

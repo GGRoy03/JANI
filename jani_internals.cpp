@@ -43,8 +43,8 @@ GenerateQuadColor(jani_context *Context, void *Payload, void *User)
     f32   *Colors   = (f32*)Context->Allocator.Allocate(DataSize);
 
     Colors[0] = 1.0f; Colors[1]  = 0.0f; Colors[2]  = 0.0f; 
-    Colors[3] = 1.0f; Colors[4]  = 0.0f; Colors[5]  = 0.0f; 
-    Colors[6] = 1.0f; Colors[7]  = 0.0f; Colors[8]  = 0.0f; 
+    Colors[3] = 0.0f; Colors[4]  = 1.0f; Colors[5]  = 0.0f; 
+    Colors[6] = 0.0f; Colors[7]  = 0.0f; Colors[8]  = 1.0f; 
     Colors[9] = 1.0f; Colors[10] = 0.0f; Colors[11] = 0.0f; 
 
     Output.Data   = Colors;
