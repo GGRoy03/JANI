@@ -208,7 +208,7 @@ struct jani_allocator
         }
 
         jani_allocator_block* Block = FreeList[Order];
-        FreeList[Order]              = Block->Next;
+        FreeList[Order]             = Block->Next;
 
         memset(Block, 0, Size);
         return Block;
@@ -278,7 +278,7 @@ struct jani_rect
 enum JANI_VERTEX_GENERATOR_TYPE
 {
     JANI_VERTEX_GEN_QUAD_POSITION_2D,
-    JANI_VERTEX_GEN_QUAD_TEXTURE_2D ,
+    JANI_VERTEX_GEN_TEXT_UV_2D      ,
     JANI_VERTEX_GEN_QUAD_COLOR      ,
     JANI_VERTEX_GEN_CUSTOM          ,
 };
@@ -318,5 +318,19 @@ struct jani_mat4
         f32 AsArray[16];
     } Data;
 };
+
+// ========================
+// Helpers
+// ========================
+
+
+inline u32
+StringLength(const char* String)
+{
+    const char* Start = String;
+    while(*String) String++;
+    return (u32)(String - Start);
+}
+
 
 } // JANI Namespace

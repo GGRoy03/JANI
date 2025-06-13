@@ -26,6 +26,7 @@ struct backend_resource
 {
     JANI_BACKEND_RESOURCE_TYPE Type;
     u32                        BindSlot;
+    char                       Id[JANI_RESOURCE_ID_SIZE];
 
     union
     {

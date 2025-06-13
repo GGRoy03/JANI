@@ -48,6 +48,8 @@ using  jani_bit_field       = u32;
 #define GET_ID_FROM_HANDLE(Handle)      (Handle >> 16)
 #define GET_INDEX_FROM_HANDLE(Handle)   (u16)(Handle & 0x0000FFFF)
 
+#define JANI_RESOURCE_ID_SIZE 32
+
 #ifndef JANI_DEFAULT_PIPELINE_COUNT
 #define JANI_DEFAULT_PIPELINE_COUNT 4
 #endif
@@ -64,7 +66,7 @@ using  jani_bit_field       = u32;
 
 enum JANI_BACKEND_RESOURCE_TYPE
 {
-    JANI_BACKEND_RESOURCE_NONE,
+    JANI_BACKEND_RESOURCE_NONE   ,
     JANI_BACKEND_RESOURCE_TEXTURE,
     JANI_BACKEND_RESOURCE_CBUFFER,
 };
@@ -100,7 +102,6 @@ struct jani_shader_input
     u32       Count;
     u32       BufferIndex;
 
-    // Vertex gen
     JANI_VERTEX_GENERATOR_TYPE GeneratorType;
     jani_vertex_generator      UserGenerator;
 };
@@ -126,6 +127,7 @@ struct jani_pipeline_buffer
 
 struct jani_resource_binding
 {
+    const char                *Id;
     JANI_BACKEND_RESOURCE_TYPE Type;
     u32                        BindSlot;
     size_t                     Size;
@@ -152,7 +154,8 @@ struct jani_pipeline_info
     u32                    BindingCount;
 };
 
-// TODO: Reserve the pipeline_handle 0 as the default one.
+void UpdatePipelineResource(jani_context *Context, const char *Id, void *Data,
+                            size_t Size, jani_pipeline_handle Handle);
 
 // ===========================================
 // Drawing 
@@ -164,22 +167,15 @@ enum JANI_DRAW_TYPE
 
     JANI_DRAW_MESH,
     JANI_DRAW_INSTANCED_MESH,
-    JANI_DRAW_TEXT,
     JANI_DRAW_QUAD,
 };
 
-struct draw_text_payload
+struct jani_quad_payload
 {
-    const char *Text;
-    u32         Length;
-};
-
-struct draw_quad_payload
-{
-    u32 SizeX;
-    u32 SizeY;
-    u32 TopLeftX;
-    u32 TopLeftY;
+    f32 SizeX;
+    f32 SizeY;
+    f32 TopLeftX;
+    f32 TopLeftY;
 };
 
 struct jani_draw_info
@@ -190,8 +186,7 @@ struct jani_draw_info
 
     union
     {
-        draw_text_payload Text;
-        draw_quad_payload Quad;
+        jani_quad_payload Quad;
     } Payload;
 };
 
@@ -237,8 +232,8 @@ struct jani_font_map
     bool Initialized;
 };
 
-jani_font_map
-LoadFontMap(char* Path);
+jani_font_map*
+LoadFontMap(jani_context *Context, const char* Path);
 
 void
 SetFontMap(jani_context *Context, jani_font_map *Map);

@@ -10,14 +10,6 @@ namespace JANI
 // Text 
 // ===========================================
 
-static u32
-StringLength(const char* String)
-{
-    const char* Start = String;
-    while(*String) String++;
-    return (u32)(String - Start);
-}
-
 static bool
 IsLetter(u8 c)
 {
@@ -38,10 +30,11 @@ LineStartsWith(u8* Line, const char* Pattern)
     return true;
 }
 
-jani_font_map
-LoadFontMap(jani_context *Context, char* Path)
+jani_font_map*
+LoadFontMap(jani_context *Context, const char* Path)
 {
-    jani_font_map             Result     = {};
+    jani_font_map            *Result     = (jani_font_map*)
+        Context->Allocator.Allocate(sizeof(jani_font_map));
     jani_platform_read_result FileBuffer =
         Context->Platform.JaniReadFile(Path, &Context->Allocator);
 
@@ -54,13 +47,13 @@ LoadFontMap(jani_context *Context, char* Path)
         {
             u32 DummyBase;
             sscanf_s((const char*)LineStart, "common lineHeight=%u base=%u scaleW=%u scaleH=%u"
-                    ,&Result.LineHeight, &DummyBase, &Result.TextureSizeX, &Result.TextureSizeY);
+                    ,&Result->LineHeight, &DummyBase, &Result->TextureSizeX, &Result->TextureSizeY);
         }
         else if (LineStartsWith(LineStart, "chars"))
         {
-            sscanf_s((const char*)LineStart, "chars count=%u", &Result.GlyphCount);
-            size_t AllocSize = Result.GlyphCount * sizeof(jani_glyph);
-            Result.Glyphs    = (jani_glyph*)Context->Allocator.Allocate(AllocSize);
+            sscanf_s((const char*)LineStart, "chars count=%u", &Result->GlyphCount);
+            size_t AllocSize = Result->GlyphCount * sizeof(jani_glyph);
+            Result->Glyphs    = (jani_glyph*)Context->Allocator.Allocate(AllocSize);
         }
         else if(LineStartsWith(LineStart, "char"))
         {
@@ -73,18 +66,18 @@ LoadFontMap(jani_context *Context, char* Path)
             u32 GlyphIndex = Glyph.ID - ID_OFFSET;
             if(GlyphIndex >= 0)
             {
-                Result.Glyphs[GlyphIndex] = Glyph;
+                Result->Glyphs[GlyphIndex] = Glyph;
             }
         }
         // NOTE: We skip kerning for now.
 
         while(FileBuffer.Content[At] != '\n')    At++;
-        while(!IsLetter(FileBuffer.Content[At])) At++;
+        while(At < FileBuffer.ContentSize && !IsLetter(FileBuffer.Content[At])) At++;
     }
 
     Context->Allocator.Free(FileBuffer.Content, FileBuffer.ContentSize);
 
-    Result.Loaded = true;
+    Result->Loaded = true;
     return Result;
 }
 
@@ -106,7 +99,7 @@ BeginUIFrame(jani_context *Context)
 {
     if(!Context->Initialized)
     {
-        Context->Allocator = jani_allocator(Megabytes(5));
+        Context->Allocator = jani_allocator(Megabytes(10));
         Context->Backend   = (jani_backend*)
             Context->Allocator.Allocate(sizeof(jani_backend));
 
@@ -126,7 +119,7 @@ DrawBox(jani_context *Context)
     Info.VtxBufferTarget = 0;
     Info.IdxBufferTarget = 0;
 
-    draw_quad_payload *Payload = &Info.Payload.Quad;
+    jani_quad_payload *Payload = &Info.Payload.Quad;
     Payload->SizeX             = 500;
     Payload->SizeY             = 500;
     Payload->TopLeftX          = 300;
@@ -148,7 +141,7 @@ DrawBox(jani_context *Context, jani_pipeline_handle Handle)
     Info.VtxBufferTarget = 0;
     Info.IdxBufferTarget = 0;
 
-    draw_quad_payload *Payload = &Info.Payload.Quad;
+    jani_quad_payload *Payload = &Info.Payload.Quad;
     Payload->SizeX             = 500;
     Payload->SizeY             = 500;
     Payload->TopLeftX          = 300;
@@ -164,47 +157,45 @@ DrawBox(jani_context *Context, jani_pipeline_handle Handle)
 }
 
 void
-Text(jani_context *Context, const char* Text)
-{
-    jani_draw_info Info  = {};
-    Info.DrawType        = JANI_DRAW_TEXT;
-    Info.VtxBufferTarget = 0;
-    Info.IdxBufferTarget = 0;
-
-    draw_text_payload Payload = {};
-    Payload.Text              = Text;
-    Payload.Length            = StringLength(Text);
-
-    jani_pipeline_handle CurrentHandle = Context->Backend->ActivePipeline;
-    u16                  CurrentIndex  = GET_INDEX_FROM_HANDLE(CurrentHandle);
-    jani_pipeline_state *State         = Context->Backend->States + CurrentIndex;
-
-    State->DrawList.VtxBuffer.FrameSize += Payload.Length * 4 * State->InputStride;
-
-    State->DrawList.DrawInfos.Push(Info);
-}
-
-void
 Text(jani_context *Context, const char* Text, jani_pipeline_handle Handle)
 {
-    jani_draw_info Info  = {};
-    Info.DrawType        = JANI_DRAW_TEXT;
-    Info.VtxBufferTarget = 0;
-    Info.IdxBufferTarget = 0;
+    u32 Length = StringLength(Text);
 
-    draw_text_payload Payload = {};
-    Payload.Text              = Text;
-    Payload.Length            = StringLength(Text);
+    // NOTE: For now we hardcode our pen position.
+    f32 PenX = 500;
+    f32 PenY = 400;
 
-    u16                  Index  = GET_INDEX_FROM_HANDLE(Handle);
-    jani_pipeline_state *State  = Context->Backend->States + Index;
+    jani_font_map *FontMap = Context->ActiveFontMap;
 
-    State->DrawList.VtxBuffer.FrameSize += Payload.Length * 4 * State->InputStride;
+    u16                  PIndex = GET_INDEX_FROM_HANDLE(Handle);
+    jani_pipeline_state  *State = Context->Backend->States + PIndex;
 
-    State->DrawList.DrawInfos.Push(Info);
+    for(u32 Index = 0; Index < Length; Index++)
+    {
+        char C = Text[Index];
+
+        jani_glyph *G = FontMap->Glyphs + (C - 32);
+
+        jani_draw_info Info  = {};
+        Info.DrawType        = JANI_DRAW_QUAD;
+        Info.VtxBufferTarget = 0;
+        Info.IdxBufferTarget = 0;
+
+        jani_quad_payload *Payload = &Info.Payload.Quad;
+        Payload->SizeX             = (f32)G->SizeX;
+        Payload->SizeY             = (f32)G->SizeY;
+        Payload->TopLeftX          = PenX;
+        Payload->TopLeftY          = PenY;
+
+        PenX += G->XAdvance;
+
+        State->DrawList.VtxBuffer.FrameSize += 4 * State->InputStride;
+        State->DrawList.IdxBuffer.FrameSize += 6 * sizeof(u32);
+
+        State->DrawList.DrawInfos.Push(Info);
+    }
 }
 
-// NOTE: This might cause huge issues because of draw orders.
 void
 EndUIFrame(jani_context *Context)
 {

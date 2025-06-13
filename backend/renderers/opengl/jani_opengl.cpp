@@ -7,6 +7,8 @@ namespace JANI
 {
 
 // WARN: This always uses GL_DYNAMIC_DRAW as a flag which is wrong.
+// WARN: This calls glNamedBufferSubData a LOT of times. We must build on the CPU
+// and call that once somehow. We emit a lot of draw calls in this loop which is wrong.
 void 
 PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
 {
@@ -48,10 +50,6 @@ PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
         {
         } break;
 
-        case JANI_DRAW_TEXT:
-        {
-        } break;
-
         case JANI_DRAW_QUAD:
         {
             size_t CurrentIndexOffset = List->IdxBuffer.IndexOffset;
@@ -59,47 +57,46 @@ PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
 
             for(u32 Output = 0; Output < State->InputCount; Output++)
             {
-                Outputs[Output] = State->Generators[Output](Context, nullptr, nullptr);
+                Outputs[Output] = State->Generators[Output](Context, &Info.Payload.Quad, nullptr);
             }
 
-            for(u32 Quad = 0; Quad < 4; Quad++)
+            for(u32 Vertex = 0; Vertex < 4; Vertex++)
             {
-                for(u32 Output = 0; Output < State->InputCount; Output++)
+                for(u32 Input = 0; Input < State->InputCount; Input++)
                 {
-                    jani_vertex_output *Vertex = Outputs + Output;
+                    jani_vertex_output *Output = Outputs + Input;
 
                     glNamedBufferSubData(List->VtxBuffer.Buffer,
                                          List->VtxBuffer.WriteOffset,
-                                         Vertex->Stride,
-                                         (u8*)Vertex->Data + Vertex->Offset);
+                                         Output->Stride,
+                                         (u8*)Output->Data + Output->Offset);
 
-                    Vertex->Offset              += Vertex->Stride;
-                    List->VtxBuffer.WriteOffset += Vertex->Stride;
+                    Output->Offset              += Output->Stride;
+                    List->VtxBuffer.WriteOffset += Output->Stride;
                 }
             }
 
-            if(List->IdxBuffer.Buffer != 0)
+            if(List->IdxBuffer.Buffer)
             {
-                jani_vertex_output Output = 
+                jani_vertex_output Indices = 
                             State->IndexGenerator(Context, nullptr, nullptr);
 
                 glNamedBufferSubData(List->IdxBuffer.Buffer,
                                      List->IdxBuffer.IndexOffset,
-                                     Output.Size, Output.Data);
+                                     Indices.Size, Indices.Data);
 
-                List->IdxBuffer.IndexOffset += Output.Size;
+                List->IdxBuffer.IndexOffset += Indices.Size;
                 List->IdxBuffer.BaseVertex  += 4;
 
-                Context->Allocator.Free(Output.Data, Output.Size);
+                Context->Allocator.Free(Indices.Data, Indices.Size);
             }
 
             for(u32 Output = 0; Output < State->InputCount; Output++)
             {
-                jani_vertex_output *Vertex = Outputs + Output;
+                jani_vertex_output Vertex = Outputs[Output]; // This access corrupts the font map???
 
-                Context->Allocator.Free(Vertex->Data, Vertex->Size);
+                Context->Allocator.Free(Vertex.Data, Vertex.Size);
             }
-            Context->Allocator.Free(Outputs, OutputSize);
 
             jani_draw_command Command = {};
             Command.Type              = JANI_DRAW_COMMAND_INDEXED_OFFSET;
@@ -112,8 +109,12 @@ PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
 
         }
     }
+
+    Context->Allocator.Free(Outputs, OutputSize);
 }
 
+// WARN: This uses the queue capacity which is probably 
+// wrong.
 static inline void
 BindResourceQueue(jani_backend_resource_queue *Queue)
 {
@@ -394,6 +395,8 @@ GetNextResource(jani_backend_resource_queue *Queue)
     }
 
     backend_resource *Resource = Queue->Resources + Queue->At;
+    ++Queue->At;
+
     return Resource;
 }
 
@@ -410,6 +413,16 @@ CreateAndBindResources(jani_pipeline_state *State, jani_resource_binding *Bindin
 
         Resource->BindSlot = Binding.BindSlot;
         Resource->Type     = Binding.Type;
+
+        u32 IdLength = StringLength(Binding.Id);
+        if(IdLength < JANI_RESOURCE_ID_SIZE)
+        {
+            memcpy(Resource->Id, Binding.Id, IdLength);
+        }
+        else
+        {
+            Jani_Assert(!"Resource id exceeds maximum length.\n");
+        }
 
         switch(Binding.Type)
         {
@@ -567,6 +580,58 @@ void inline
 SetPipelineState(jani_backend *Backend, jani_pipeline_handle PipelineHandle)
 {
     Backend->ActivePipeline = PipelineHandle;
+}
+
+// ==================================
+// RESOURCES
+// ==================================
+
+void
+UpdatePipelineResource(jani_context *Context, const char *Id, void *Data,
+                       size_t Size, jani_pipeline_handle Handle)
+{
+    u16                   PIndex = GET_INDEX_FROM_HANDLE(Handle);
+    jani_pipeline_state  *State  = Context->Backend->States + PIndex;
+
+    // WARN
+    for(u32 Index = 0; Index < State->ResourceQueue.Capacity; Index++)
+    {
+        backend_resource *Resource = State->ResourceQueue.Resources + Index;
+
+        if(Resource->Type == JANI_BACKEND_RESOURCE_NONE) continue;
+
+        if(strcmp(Resource->Id, Id) == 0)
+        {
+            switch(Resource->Type)
+            {
+
+            case JANI_BACKEND_RESOURCE_CBUFFER:
+            {
+                GLuint Buffer     = Resource->Data.CBuffer.Buffer;
+                size_t BufferSize = Resource->Data.CBuffer.SizeOfData;
+
+                Jani_Assert(Size <= BufferSize);
+
+                    void *WritePointer = glMapNamedBuffer(Buffer, GL_WRITE_ONLY);
+                    if(WritePointer)
+                    {
+                        memcpy(WritePointer, Data, Size);
+                        glUnmapNamedBuffer(Buffer);
+                    }
+                    else
+                    {
+                        Jani_Assert(!"Could not update the resource.\n");
+                    }
+            } break;
+
+            case JANI_BACKEND_RESOURCE_TEXTURE:
+            {
+                Jani_Assert(!"Cannot update texture.\n");
+            } break;
+
+            }
+        }
+    }
 }
 
 }
