@@ -167,6 +167,7 @@ enum JANI_DRAW_TYPE
 
     JANI_DRAW_MESH,
     JANI_DRAW_INSTANCED_MESH,
+
     JANI_DRAW_QUAD,
 };
 
@@ -178,6 +179,19 @@ struct jani_quad_payload
     f32 TopLeftY;
 };
 
+struct jani_text_payload
+{
+    f32 SizeX;
+    f32 SizeY;
+    f32 TopLeftX;
+    f32 TopLeftY;
+
+    u32 AtlasPosX;
+    u32 AtlasPosY;
+    u32 TextureSizeX;
+    u32 TextureSizeY;
+};
+
 struct jani_draw_info
 {
     JANI_DRAW_TYPE DrawType;
@@ -187,6 +201,7 @@ struct jani_draw_info
     union
     {
         jani_quad_payload Quad;
+        jani_text_payload Text;
     } Payload;
 };
 

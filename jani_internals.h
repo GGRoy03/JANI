@@ -277,10 +277,17 @@ struct jani_rect
 
 enum JANI_VERTEX_GENERATOR_TYPE
 {
-    JANI_VERTEX_GEN_QUAD_POSITION_2D,
-    JANI_VERTEX_GEN_TEXT_UV_2D      ,
-    JANI_VERTEX_GEN_QUAD_COLOR      ,
-    JANI_VERTEX_GEN_CUSTOM          ,
+    // Quads
+    JANI_VERTEX_GEN_QUAD,
+
+    // Text
+    JANI_VERTEX_GEN_TEXT_QUAD ,
+    JANI_VERTEX_GEN_TEXT_UV   ,
+
+    // Common
+    JANI_VERTEX_GEN_COLOR,
+
+    JANI_VERTEX_GEN_CUSTOM,
 };
 
 struct jani_quad
@@ -300,10 +307,14 @@ inline size_t
 GenerateQuadVertex(void *Payload, void *User);
 
 inline size_t
-GenerateQuadColor(void *Payload, void *User);
+GenerateTextQuad(void *Payload, void *User);
+
+inline size_t 
+GenerateTextUV(void *Payload, void *User);
 
 inline size_t
-GenerateQuadIndex(void *Payload, void *User);
+GenerateColor(void *Payload, void *User);
+
 
 // -------------------------
 // Math 

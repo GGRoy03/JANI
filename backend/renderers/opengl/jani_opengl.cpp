@@ -46,7 +46,6 @@ PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
         {
         } break;
 
-        // NOTE: This just works? We removed all of the weird allocations.
         case JANI_DRAW_QUAD:
         {
             jani_quad Vertex   = {};
@@ -270,18 +269,28 @@ CreateAndSetInputLayout(jani_pipeline_state *State, jani_shader_input *Inputs,
         switch(Input.GeneratorType)
         {
 
-        case JANI_VERTEX_GEN_QUAD_POSITION_2D:
+        case JANI_VERTEX_GEN_QUAD:
         {
             State->Generators[Index] = GenerateQuadVertex;
         } break;
 
-        case JANI_VERTEX_GEN_QUAD_COLOR:
+        case JANI_VERTEX_GEN_TEXT_QUAD:
         {
-            State->Generators[Index] = GenerateQuadColor;
+            State->Generators[Index] = GenerateTextQuad;
+        } break;
+
+        case JANI_VERTEX_GEN_TEXT_UV:
+        {
+            State->Generators[Index] = GenerateTextUV;
+        } break;
+
+        case JANI_VERTEX_GEN_COLOR:
+        {
+            State->Generators[Index] = GenerateColor;
         } break;
 
         default:
-            Jani_Assert(!"Vertex generator type not implemented by the opengl backend");
+            Jani_Assert(!"Vertex generator type not available for the opengl backend");
             break;
         }
     }

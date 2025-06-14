@@ -107,10 +107,8 @@ BeginUIFrame(jani_context *Context)
     }
 
     JANI_PLATFORM::DoPlatformWorkBeforeFrame(Context);
-
 }
 
-// NOTE: The behavior of this must be somehow changed by the current pipeline..
 void 
 DrawBox(jani_context *Context)
 {
@@ -174,18 +172,22 @@ Text(jani_context *Context, const char* Text, jani_pipeline_handle Handle)
     {
         char C = Text[Index];
 
-        jani_glyph *G = FontMap->Glyphs + (C - 32);
+        jani_glyph *G = FontMap->Glyphs + (C - 32); // WARN: Temp fix
 
         jani_draw_info Info  = {};
         Info.DrawType        = JANI_DRAW_QUAD;
         Info.VtxBufferTarget = 0;
         Info.IdxBufferTarget = 0;
 
-        jani_quad_payload *Payload = &Info.Payload.Quad;
+        jani_text_payload *Payload = &Info.Payload.Text;
         Payload->SizeX             = (f32)G->SizeX;
         Payload->SizeY             = (f32)G->SizeY;
         Payload->TopLeftX          = PenX;
         Payload->TopLeftY          = PenY;
+        Payload->AtlasPosX         = G->PositionInAtlasX;
+        Payload->AtlasPosY         = G->PositionInAtlasY;
+        Payload->TextureSizeX      = FontMap->TextureSizeX;
+        Payload->TextureSizeY      = FontMap->TextureSizeY;
 
         PenX += G->XAdvance;
 
