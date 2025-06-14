@@ -57,6 +57,7 @@ struct jani_backend_vertex_buffer
 {
     GLuint Buffer;
 
+    u8*    Cpu;
     size_t WriteOffset;
 
     size_t FrameSize;
@@ -67,8 +68,10 @@ struct jani_backend_index_buffer
 {
     GLuint Buffer;
 
-    size_t IndexOffset;
-    size_t BaseVertex;
+    u8*    Cpu;
+    size_t WriteOffset;
+
+    u32 BaseVertex;
 
     size_t FrameSize;
     size_t Size;
@@ -94,7 +97,6 @@ struct jani_pipeline_state
     jani_backend_resource_queue ResourceQueue;
 
     jani_vertex_generator *Generators;
-    jani_vertex_generator  IndexGenerator;
 
     jani_bit_field EnabledShaders;
 };

@@ -3,6 +3,8 @@
 namespace JANI
 {
 
+// NOTE: Thinking of adding the quad to the payload?
+
 inline size_t
 GenerateQuadVertex(void *Payload, void *User)
 {

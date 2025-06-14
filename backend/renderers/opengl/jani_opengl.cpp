@@ -6,9 +6,8 @@
 namespace JANI
 {
 
+
 // WARN: This always uses GL_DYNAMIC_DRAW as a flag which is wrong.
-// WARN: This calls glNamedBufferSubData a LOT of times. We must build on the CPU
-// and call that once somehow. We emit a lot of draw calls in this loop which is wrong.
 void 
 PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
 {
@@ -16,9 +15,13 @@ PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
 
     if(List->VtxBuffer.FrameSize > List->VtxBuffer.Size)
     {
+        Context->Allocator.Free(List->VtxBuffer.Cpu, List->VtxBuffer.Size);
+
         List->VtxBuffer.Size = List->VtxBuffer.FrameSize + Kilobytes(5);
         glNamedBufferData(List->VtxBuffer.Buffer, List->VtxBuffer.Size,
                           nullptr, GL_DYNAMIC_DRAW);
+
+        List->VtxBuffer.Cpu = (u8*)Context->Allocator.Allocate(List->VtxBuffer.Size);
     }
 
     if(List->IdxBuffer.FrameSize > List->IdxBuffer.Size)
@@ -27,13 +30,6 @@ PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
         glNamedBufferData(List->IdxBuffer.Buffer, List->IdxBuffer.Size,
                           nullptr, GL_DYNAMIC_DRAW);
     }
-
-    size_t              OutputSize = State->InputCount * sizeof(jani_vertex_output);
-    jani_vertex_output *Outputs    = (jani_vertex_output*)
-        Context->Allocator.Allocate(OutputSize);
-
-    // WARN: This loop puts a lot of pressure on the allocator. We could 
-    // allocate a big chunk up front and use some sort of stack.
 
     for(u32 Index = 0; Index < List->DrawInfos.Size; Index++)
     {
@@ -50,71 +46,67 @@ PrepareDrawCommands(jani_context *Context, jani_pipeline_state *State)
         {
         } break;
 
+        // NOTE: This just works? We removed all of the weird allocations.
         case JANI_DRAW_QUAD:
         {
-            size_t CurrentIndexOffset = List->IdxBuffer.IndexOffset;
-            u32    CurrentBaseVertex  = (u32)List->IdxBuffer.BaseVertex;
+            jani_quad Vertex   = {};
+            Vertex.TopLeft     = List->VtxBuffer.Cpu + List->VtxBuffer.WriteOffset;
+            Vertex.BottomLeft  = Vertex.TopLeft      + State->InputStride;
+            Vertex.TopRight    = Vertex.BottomLeft   + State->InputStride;
+            Vertex.BottomRight = Vertex.TopRight     + State->InputStride;
 
             for(u32 Output = 0; Output < State->InputCount; Output++)
             {
-                Outputs[Output] = State->Generators[Output](Context, &Info.Payload.Quad, nullptr);
+                size_t Stride = State->Generators[Output](&Info.Payload.Quad, &Vertex);
+
+                Vertex.TopLeft     += Stride;
+                Vertex.TopRight    += Stride;
+                Vertex.BottomLeft  += Stride;
+                Vertex.BottomRight += Stride;
             }
 
-            for(u32 Vertex = 0; Vertex < 4; Vertex++)
-            {
-                for(u32 Input = 0; Input < State->InputCount; Input++)
-                {
-                    jani_vertex_output *Output = Outputs + Input;
-
-                    glNamedBufferSubData(List->VtxBuffer.Buffer,
-                                         List->VtxBuffer.WriteOffset,
-                                         Output->Stride,
-                                         (u8*)Output->Data + Output->Offset);
-
-                    Output->Offset              += Output->Stride;
-                    List->VtxBuffer.WriteOffset += Output->Stride;
-                }
-            }
+            List->VtxBuffer.WriteOffset += 4 * State->InputStride;
 
             if(List->IdxBuffer.Buffer)
             {
-                jani_vertex_output Indices = 
-                            State->IndexGenerator(Context, nullptr, nullptr);
+                void *Write = List->IdxBuffer.Cpu + List->IdxBuffer.WriteOffset;
 
-                glNamedBufferSubData(List->IdxBuffer.Buffer,
-                                     List->IdxBuffer.IndexOffset,
-                                     Indices.Size, Indices.Data);
+                u32 Indices[6] = 
+                {
+                    0 + List->IdxBuffer.BaseVertex,
+                    1 + List->IdxBuffer.BaseVertex,
+                    3 + List->IdxBuffer.BaseVertex,
+                    3 + List->IdxBuffer.BaseVertex,
+                    2 + List->IdxBuffer.BaseVertex,
+                    0 + List->IdxBuffer.BaseVertex,
+                };
 
-                List->IdxBuffer.IndexOffset += Indices.Size;
+                memcpy(Write, Indices, sizeof(Indices));
+
+                List->IdxBuffer.WriteOffset += sizeof(Indices);
                 List->IdxBuffer.BaseVertex  += 4;
-
-                Context->Allocator.Free(Indices.Data, Indices.Size);
             }
 
-            for(u32 Output = 0; Output < State->InputCount; Output++)
-            {
-                jani_vertex_output Vertex = Outputs[Output]; // This access corrupts the font map???
-
-                Context->Allocator.Free(Vertex.Data, Vertex.Size);
-            }
-
-            jani_draw_command Command = {};
-            Command.Type              = JANI_DRAW_COMMAND_INDEXED_OFFSET;
-            Command.Count             = 6;
-            Command.Offset            = CurrentIndexOffset;
-            Command.BaseVertex        = CurrentBaseVertex;
-
-            List->Commands.Push(Command);
         } break;
 
         }
     }
 
-    Context->Allocator.Free(Outputs, OutputSize);
+    glNamedBufferSubData(List->VtxBuffer.Buffer, 0, 
+                         List->VtxBuffer.FrameSize,
+                         List->VtxBuffer.Cpu);
+
+    glNamedBufferSubData(List->IdxBuffer.Buffer, 0,
+                         List->IdxBuffer.FrameSize,
+                         List->IdxBuffer.Cpu);
+
+    // WARN: Obviously, cannot hardcode it like that, I need a simple scheme.
+    jani_draw_command Command = {};
+    Command.Count             = 30;
+
+    List->Commands.Push(Command);
 }
 
-// WARN: This uses the queue capacity which is probably 
-// wrong.
 static inline void
 BindResourceQueue(jani_backend_resource_queue *Queue)
 {
@@ -153,24 +145,15 @@ DrawPipelineCommands(jani_pipeline_state *State)
     {
         jani_draw_command Command = State->DrawList.Commands[Index];
 
-        switch(Command.Type)
-        {
-
-        case JANI_DRAW_COMMAND_INDEXED_OFFSET:
-        {
-            glDrawElementsBaseVertex(GL_TRIANGLES, Command.Count, GL_UNSIGNED_INT,
-                                    (const void*)Command.Offset, Command.BaseVertex);
-        } break;
-
-        }
+        glDrawElements(GL_TRIANGLES, Command.Count, GL_UNSIGNED_INT, (const void*)0);
     }
 
     State->DrawList.VtxBuffer.FrameSize   = 0;
     State->DrawList.VtxBuffer.WriteOffset = 0;
 
     State->DrawList.IdxBuffer.FrameSize   = 0;
-    State->DrawList.IdxBuffer.IndexOffset = 0;
     State->DrawList.IdxBuffer.BaseVertex  = 0;
+    State->DrawList.IdxBuffer.WriteOffset = 0;
 
     State->DrawList.DrawInfos.Reset();
     State->DrawList.Commands.Reset();
@@ -193,7 +176,6 @@ GetShaderType(JANI_SHADER_TYPE Type)
     }
 }
 
-//
 static inline GLenum
 GetShaderBit(JANI_SHADER_TYPE Type)
 {
@@ -499,6 +481,9 @@ CreateAndBindResources(jani_pipeline_state *State, jani_resource_binding *Bindin
     }
 }
 
+// WARN: This thing is a mess. Immediate mode API should fix this easily
+// idea: SetPipeline(pipeline_handle *Handle) if handle == 0, create one?
+
 jani_pipeline_handle
 CreatePipeline(jani_context *Context, jani_pipeline_info Info)
 {
@@ -560,8 +545,8 @@ CreatePipeline(jani_context *Context, jani_pipeline_info Info)
         List->DrawInfos = JaniBumper<jani_draw_info>   (10*sizeof(jani_draw_info));
         List->Commands  = JaniBumper<jani_draw_command>(10*sizeof(jani_draw_command));
 
+
         State->InputCount     = Info.InputCount;
-        State->IndexGenerator = GenerateQuadIndex;
         State->Generators     = (jani_vertex_generator*)
             A->Allocate(State->InputCount*sizeof(jani_vertex_generator));
 
@@ -569,6 +554,9 @@ CreatePipeline(jani_context *Context, jani_pipeline_info Info)
         CreateAndSetInputLayout(State, Info.Inputs  , Info.InputCount  );
         CreateAndBindBuffers   (State, Info.Buffers , Info.BufferCount );
         CreateAndBindResources (State, Info.Bindings, Info.BindingCount);
+
+        List->VtxBuffer.Cpu = (u8*)A->Allocate(List->VtxBuffer.Size);
+        List->IdxBuffer.Cpu = (u8*)A->Allocate(List->IdxBuffer.Size);
 
         return Handle;
     }
@@ -633,5 +621,9 @@ UpdatePipelineResource(jani_context *Context, const char *Id, void *Data,
         }
     }
 }
+
+// ==================================
+// IMMEDIATE MODE API TESTING
+// ==================================
 
 }
