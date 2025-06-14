@@ -283,27 +283,27 @@ enum JANI_VERTEX_GENERATOR_TYPE
     JANI_VERTEX_GEN_CUSTOM          ,
 };
 
-struct jani_vertex_output
+struct jani_quad
 {
-    void  *Data;
-    size_t Offset;
-    u32    Stride;
-    size_t Size;
+    u8 *TopLeft;
+    u8 *TopRight;
+    u8 *BottomLeft;
+    u8 *BottomRight;
 };
 
 struct jani_context;
 
 using jani_vertex_generator =
-jani_vertex_output(*)(jani_context *Context, void *Payload, void *User);
+size_t(*)(void *Payload, void *User);
 
-inline jani_vertex_output
-GenerateQuadVertex(jani_context *Context, void *Payload, void *User);
+inline size_t 
+GenerateQuadVertex(void *Payload, void *User);
 
-inline jani_vertex_output
-GenerateQuadColor(jani_context *Context, void *Payload, void *User);
+inline size_t
+GenerateQuadColor(void *Payload, void *User);
 
-inline jani_vertex_output
-GenerateQuadIndex(jani_context *Context, void *Payload, void *User);
+inline size_t
+GenerateQuadIndex(void *Payload, void *User);
 
 // -------------------------
 // Math 
